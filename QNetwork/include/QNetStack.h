@@ -38,6 +38,10 @@ namespace QNet
         void receivePacket(const void *data, QC::usize length);
         void transmitPacket(const void *data, QC::usize length);
 
+        // NIC driver callback
+        static void setTransmitCallback(void (*callback)(const void *, QC::usize));
+        static void transmitToNIC(const void *data, QC::usize length);
+
     private:
         Stack();
         ~Stack();

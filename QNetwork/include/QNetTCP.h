@@ -103,6 +103,8 @@ namespace QNet
         QC::u16 allocatePort();
         TCPConnection *findConnection(IPv4Address remoteAddr, QC::u16 remotePort,
                                       QC::u16 localPort);
+        QC::u16 calculateChecksum(IPv4Address srcAddr, IPv4Address destAddr,
+                                  const void *segment, QC::usize length);
 
         static constexpr QC::usize MAX_CONNECTIONS = 256;
         TCPConnection *m_connections[MAX_CONNECTIONS];

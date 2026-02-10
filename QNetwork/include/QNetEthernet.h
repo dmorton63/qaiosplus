@@ -68,6 +68,11 @@ namespace QNet
             bool valid;
         };
         ARPEntry m_arpCache[ARP_CACHE_SIZE];
+
+        // ARP handling
+        void handleARP(const void *data, QC::usize length);
+        void sendARPRequest(QC::u32 targetIP);
+        void sendARPReply(QC::u32 targetIP, const MACAddress &targetMAC);
     };
 
 } // namespace QNet

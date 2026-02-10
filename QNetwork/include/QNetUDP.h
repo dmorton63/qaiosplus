@@ -60,6 +60,8 @@ namespace QNet
     private:
         UDPBinding *findBinding(QC::u16 port);
         QC::u16 allocatePort();
+        QC::u16 calculateChecksum(IPv4Address srcAddr, IPv4Address destAddr,
+                                  const void *packet, QC::usize length);
 
         static constexpr QC::usize MAX_BINDINGS = 256;
         UDPBinding *m_bindings[MAX_BINDINGS];

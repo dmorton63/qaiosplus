@@ -85,6 +85,8 @@ namespace QNet
         IPv4Address m_subnetMask;
         IPv4Address m_gateway;
         QC::u16 m_identification;
+
+        void handleICMP(IPv4Address source, const void *data, QC::usize length);
     };
 
 } // namespace QNet
