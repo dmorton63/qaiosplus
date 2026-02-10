@@ -23,6 +23,7 @@
 #include "QKEventManager.h"
 #include "QKEventListener.h"
 #include "QWCtrlButton.h"
+#include "QDDesktop.h"
 
 // Limine requests are defined in QKBoot.asm
 
@@ -43,6 +44,33 @@ extern "C"
 
     // Limine requests from QKBoot.asm
     extern QC::u64 limine_framebuffer_request[];
+    extern QC::u64 limine_hhdm_request[];
+    extern QC::u64 limine_kernel_address_request[];
+}
+
+// Global HHDM offset (physical to virtual mapping)
+static QC::u64 g_hhdmOffset = 0;
+
+// Kernel address mapping from Limine
+static QC::u64 g_kernelPhysBase = 0;
+static QC::u64 g_kernelVirtBase = 0;
+
+// Get HHDM offset for physical-to-virtual translation
+QC::u64 getHHDMOffset()
+{
+    return g_hhdmOffset;
+}
+
+// Convert physical address to virtual address (for RAM, via HHDM)
+extern "C" QC::VirtAddr physToVirt(QC::PhysAddr phys)
+{
+    return static_cast<QC::VirtAddr>(phys + g_hhdmOffset);
+}
+
+// Convert kernel virtual address to physical address
+extern "C" QC::PhysAddr kernelVirtToPhys(QC::VirtAddr virt)
+{
+    return static_cast<QC::PhysAddr>(virt - g_kernelVirtBase + g_kernelPhysBase);
 }
 
 // Helper to clear BSS
@@ -62,14 +90,14 @@ alignas(4096) static QC::u8 earlyHeapBuffer[32 * 1024 * 1024];
 alignas(4096) static QC::u8 earlyDMABuffer[1 * 1024 * 1024];
 static QC::usize earlyDMAOffset = 0;
 
-// Simple page allocator for early USB (identity-mapped, so virt == phys)
+// Simple page allocator for early USB - returns PHYSICAL address
 extern "C" QC::PhysAddr earlyAllocatePage()
 {
     if (earlyDMAOffset + 4096 > sizeof(earlyDMABuffer))
         return 0;
-    QC::PhysAddr addr = reinterpret_cast<QC::PhysAddr>(&earlyDMABuffer[earlyDMAOffset]);
+    QC::VirtAddr virt = reinterpret_cast<QC::VirtAddr>(&earlyDMABuffer[earlyDMAOffset]);
     earlyDMAOffset += 4096;
-    return addr;
+    return kernelVirtToPhys(virt);
 }
 
 // Early console output (before logger is initialized)
@@ -158,6 +186,60 @@ extern "C" void kernel_main(QC::u32 magic, BootInfo *bootInfo)
     // clearBSS();
     serialPrint("BSS (skipped - Limine does it)\r\n");
 
+    // Get HHDM offset from Limine (needed for MMIO mapping)
+    QC::u64 *hhdm_response = reinterpret_cast<QC::u64 *>(limine_hhdm_request[5]);
+    if (hhdm_response != nullptr)
+    {
+        // HHDM response: [0] = revision, [1] = offset
+        g_hhdmOffset = hhdm_response[1];
+        serialPrint("HHDM offset: 0x");
+        // Print a simplified hex
+        char hexbuf[17];
+        for (int i = 15; i >= 0; --i)
+        {
+            int nibble = (g_hhdmOffset >> (i * 4)) & 0xF;
+            hexbuf[15 - i] = nibble < 10 ? '0' + nibble : 'a' + nibble - 10;
+        }
+        hexbuf[16] = 0;
+        serialPrint(hexbuf);
+        serialPrint("\r\n");
+    }
+    else
+    {
+        serialPrint("WARNING: No HHDM response from Limine!\r\n");
+    }
+
+    // Get kernel address info from Limine (needed for virt-to-phys conversion)
+    QC::u64 *kaddr_response = reinterpret_cast<QC::u64 *>(limine_kernel_address_request[5]);
+    if (kaddr_response != nullptr)
+    {
+        // Kernel address response: [0] = revision, [1] = physical_base, [2] = virtual_base
+        g_kernelPhysBase = kaddr_response[1];
+        g_kernelVirtBase = kaddr_response[2];
+        serialPrint("Kernel phys base: 0x");
+        char hexbuf[17];
+        for (int i = 15; i >= 0; --i)
+        {
+            int nibble = (g_kernelPhysBase >> (i * 4)) & 0xF;
+            hexbuf[15 - i] = nibble < 10 ? '0' + nibble : 'a' + nibble - 10;
+        }
+        hexbuf[16] = 0;
+        serialPrint(hexbuf);
+        serialPrint("\r\nKernel virt base: 0x");
+        for (int i = 15; i >= 0; --i)
+        {
+            int nibble = (g_kernelVirtBase >> (i * 4)) & 0xF;
+            hexbuf[15 - i] = nibble < 10 ? '0' + nibble : 'a' + nibble - 10;
+        }
+        hexbuf[16] = 0;
+        serialPrint(hexbuf);
+        serialPrint("\r\n");
+    }
+    else
+    {
+        serialPrint("WARNING: No kernel_address response from Limine!\r\n");
+    }
+
     serialPrint("About to call CPU init\r\n");
 
     // Initialize CPU features first
@@ -245,6 +327,11 @@ extern "C" void kernel_main(QC::u32 magic, BootInfo *bootInfo)
             // Initialize the event system
             QK::Event::EventManager::instance().initialize();
             serialPrint("Event system initialized\r\n");
+
+            // Initialize timer (100 Hz tick for main loop)
+            serialPrint("Initializing timer...\r\n");
+            QDrv::Timer::instance().initialize(100);
+            serialPrint("Timer initialized\r\n");
 
             // Initialize PCI bus and enumerate devices
             serialPrint("Initializing PCI...\r\n");
@@ -398,123 +485,18 @@ extern "C" void kernel_main(QC::u32 magic, BootInfo *bootInfo)
                 ); });
             serialPrint("Keyboard initialized\r\n");
 
-            // Create desktop window (fills the screen)
-            serialPrint("Creating desktop window...\r\n");
-            QW::Window *desktop = QW::WindowManager::instance().createWindow(
-                "Desktop",
-                QW::Rect{0, 0, width, height});
+            // Create desktop using QDDesktop module
+            serialPrint("Creating desktop...\r\n");
+            static QD::Desktop desktop;
+            desktop.initialize(width, height);
+            serialPrint("Desktop initialized\r\n");
 
-            if (desktop == nullptr)
-            {
-                serialPrint("ERROR: Failed to create desktop window!\r\n");
-            }
-            else
-            {
-                serialPrint("Setting window flags...\r\n");
-                desktop->setFlags(QW::WindowFlags::Visible); // No decorations for desktop
-                serialPrint("Clearing window...\r\n");
-                desktop->clear(QW::Color(0, 128, 128, 255)); // Teal background
-                serialPrint("Desktop window created\r\n");
-
-                // Create shutdown button (TEST - remove later)
-                serialPrint("Creating shutdown button...\r\n");
-                QW::Rect shutdownBtnRect{static_cast<QC::i32>(width) - 120, 10, 100, 30};
-
-                // Draw button directly on window
-                desktop->fillRect(shutdownBtnRect, QW::Color(200, 60, 60, 255)); // Red background
-                // Draw simple border
-                for (QC::u32 bx = 0; bx < shutdownBtnRect.width; ++bx)
-                {
-                    desktop->setPixel(shutdownBtnRect.x + bx, shutdownBtnRect.y, QW::Color(100, 30, 30, 255));
-                    desktop->setPixel(shutdownBtnRect.x + bx, shutdownBtnRect.y + shutdownBtnRect.height - 1, QW::Color(100, 30, 30, 255));
-                }
-                for (QC::u32 by = 0; by < shutdownBtnRect.height; ++by)
-                {
-                    desktop->setPixel(shutdownBtnRect.x, shutdownBtnRect.y + by, QW::Color(100, 30, 30, 255));
-                    desktop->setPixel(shutdownBtnRect.x + shutdownBtnRect.width - 1, shutdownBtnRect.y + by, QW::Color(100, 30, 30, 255));
-                }
-                serialPrint("Shutdown button drawn\r\n");
-            }
+            // Paint desktop controls into the desktop window
+            desktop.paint();
 
             // Initial render
             QW::WindowManager::instance().render();
             serialPrint("Initial render complete!\r\n");
-
-            // Shutdown button bounds for click detection (static to persist for lambda)
-            static QW::Rect shutdownBtnRect{static_cast<QC::i32>(width) - 120, 10, 100, 30};
-
-            // Register event listener for mouse clicks on shutdown button
-            QK::Event::EventListener shutdownListener;
-            shutdownListener.categoryMask = QK::Event::Category::Input;
-            shutdownListener.eventType = QK::Event::Type::MouseButtonDown;
-            shutdownListener.handler = [](const QK::Event::Event &event, void *userData) -> bool
-            {
-                auto *btnRect = static_cast<QW::Rect *>(userData);
-                const auto &mouse = event.asMouse();
-
-                // Check if click is inside button bounds
-                if (mouse.button == QK::Event::MouseButton::Left)
-                {
-                    serialPrint("Click at (");
-                    // Simple coordinate print
-                    char buf[32];
-                    int idx = 0;
-                    int x = mouse.x, y = mouse.y;
-                    if (x >= 100)
-                    {
-                        buf[idx++] = '0' + (x / 100) % 10;
-                    }
-                    if (x >= 10)
-                    {
-                        buf[idx++] = '0' + (x / 10) % 10;
-                    }
-                    buf[idx++] = '0' + x % 10;
-                    buf[idx++] = ',';
-                    if (y >= 100)
-                    {
-                        buf[idx++] = '0' + (y / 100) % 10;
-                    }
-                    if (y >= 10)
-                    {
-                        buf[idx++] = '0' + (y / 10) % 10;
-                    }
-                    buf[idx++] = '0' + y % 10;
-                    buf[idx++] = ')';
-                    buf[idx++] = '\r';
-                    buf[idx++] = '\n';
-                    buf[idx] = 0;
-                    serialPrint(buf);
-
-                    bool inside = mouse.x >= btnRect->x &&
-                                  mouse.x < btnRect->x + static_cast<QC::i32>(btnRect->width) &&
-                                  mouse.y >= btnRect->y &&
-                                  mouse.y < btnRect->y + static_cast<QC::i32>(btnRect->height);
-                    if (inside)
-                    {
-                        serialPrint("Shutdown button clicked!\r\n");
-                        // QEMU/Bochs ACPI shutdown: write to port 0x604
-                        QC::outw(0x604, 0x2000); // ACPI S5 (power off)
-                        // Fallback: halt
-                        QC::cli();
-                        for (;;)
-                        {
-                            QC::halt();
-                        }
-                        return true;
-                    }
-                }
-                return false;
-            };
-            shutdownListener.userData = &shutdownBtnRect;
-            QK::Event::ListenerId shutdownId = QK::Event::EventManager::instance().addListener(shutdownListener);
-            if (shutdownId == QK::Event::InvalidListenerId)
-            {
-                serialPrint("ERROR: Failed to register shutdown listener!\r\n");
-            }
-            else
-            {
-                serialPrint("Shutdown button listener registered\r\n");
-            }
 
             // Register keyboard listener for Ctrl+Q shutdown
             QK::Event::EventListener ctrlQListener;
@@ -560,6 +542,9 @@ extern "C" void kernel_main(QC::u32 magic, BootInfo *bootInfo)
                 // Poll all active drivers
                 QKDrv::Manager::instance().poll();
 
+                // Also explicitly poll keyboard (debug)
+                QKDrv::PS2::Keyboard::instance().poll();
+
                 // Process pending events
                 QC::usize processed = QK::Event::EventManager::instance().processEvents();
                 if (processed > 0)
@@ -573,7 +558,8 @@ extern "C" void kernel_main(QC::u32 magic, BootInfo *bootInfo)
                     serialPrint(buf);
                 }
 
-                // Render (compositor draws cursor from WindowManager mouse position)
+                // Repaint desktop and render
+                desktop.paint();
                 QW::WindowManager::instance().render();
 
                 // Halt until next interrupt

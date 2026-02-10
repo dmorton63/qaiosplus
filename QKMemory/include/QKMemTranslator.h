@@ -5,6 +5,9 @@
 
 #include "QCTypes.h"
 
+// External function to get HHDM offset from boot code
+extern QC::u64 getHHDMOffset();
+
 namespace QK::Memory
 {
 
@@ -22,7 +25,13 @@ namespace QK::Memory
         template <typename T = void>
         T *physToVirt(QC::PhysAddr phys) const
         {
-            return reinterpret_cast<T *>(phys + m_physicalBase);
+            // Use m_physicalBase if set, otherwise use HHDM offset from boot
+            QC::VirtAddr base = m_physicalBase;
+            if (base == 0)
+            {
+                base = getHHDMOffset();
+            }
+            return reinterpret_cast<T *>(phys + base);
         }
 
         // Virtual to physical conversion

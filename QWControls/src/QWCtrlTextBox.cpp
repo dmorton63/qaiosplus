@@ -5,15 +5,15 @@
 #include "QKMemHeap.h"
 #include "QCMemUtil.h"
 #include "QCString.h"
+#include "QWWindow.h"
 
 namespace QW
 {
     namespace Controls
     {
 
-        TextBox::TextBox(Window *parent, Rect bounds)
-            : m_parent(parent),
-              m_bounds(bounds),
+        TextBox::TextBox()
+            : ControlBase(),
               m_text(nullptr),
               m_textLength(0),
               m_textCapacity(0),
@@ -21,16 +21,46 @@ namespace QW
               m_selStart(0),
               m_selEnd(0),
               m_maxLength(1024),
-              m_enabled(true),
               m_readOnly(false),
               m_password(false),
-              m_focused(false),
-              m_bgColor(Color(255, 255, 255, 255)),
               m_textColor(Color(0, 0, 0, 255)),
+              m_borderColor(Color(128, 128, 128, 255)),
+              m_selectionColor(Color(51, 153, 255, 255)),
               m_changeHandler(nullptr),
               m_changeUserData(nullptr),
               m_scrollOffset(0)
         {
+            m_bgColor = Color(255, 255, 255, 255);
+            m_placeholder[0] = '\0';
+
+            // Initial allocation
+            m_textCapacity = 256;
+            m_text = static_cast<char *>(QK::Memory::Heap::instance().allocate(m_textCapacity));
+            if (m_text)
+            {
+                m_text[0] = '\0';
+            }
+        }
+
+        TextBox::TextBox(Window *window, Rect bounds)
+            : ControlBase(window, bounds),
+              m_text(nullptr),
+              m_textLength(0),
+              m_textCapacity(0),
+              m_cursorPos(0),
+              m_selStart(0),
+              m_selEnd(0),
+              m_maxLength(1024),
+              m_readOnly(false),
+              m_password(false),
+              m_textColor(Color(0, 0, 0, 255)),
+              m_borderColor(Color(128, 128, 128, 255)),
+              m_selectionColor(Color(51, 153, 255, 255)),
+              m_changeHandler(nullptr),
+              m_changeUserData(nullptr),
+              m_scrollOffset(0)
+        {
+            m_bgColor = Color(255, 255, 255, 255);
             m_placeholder[0] = '\0';
 
             // Initial allocation
@@ -147,114 +177,151 @@ namespace QW
 
         void TextBox::paint()
         {
-            if (!m_parent)
+            if (!m_window || !m_visible)
                 return;
 
-            // TODO: Use window drawing primitives
+            Rect abs = absoluteBounds();
+
             // Draw background
-            // m_parent->fillRect(m_bounds, m_bgColor);
-            // m_parent->drawRect(m_bounds, Color(128, 128, 128, 255));
+            m_window->fillRect(abs, m_bgColor);
+            m_window->drawRect(abs, m_borderColor);
 
             // Draw text or placeholder
-            // if (m_textLength > 0)
-            // {
-            //     if (m_password)
-            //         draw masked text
-            //     else
-            //         draw m_text
-            // }
-            // else if (m_placeholder[0] != '\0')
-            // {
-            //     draw placeholder with dimmed color
-            // }
+            QC::i32 textX = abs.x + 4; // Small left padding
+            QC::i32 textY = abs.y + static_cast<QC::i32>(abs.height / 2);
+
+            if (m_textLength > 0)
+            {
+                if (m_password)
+                {
+                    // Draw masked text (asterisks)
+                    char masked[256];
+                    QC::usize len = m_textLength < 255 ? m_textLength : 255;
+                    for (QC::usize i = 0; i < len; ++i)
+                    {
+                        masked[i] = '*';
+                    }
+                    masked[len] = '\0';
+                    m_window->drawText(textX, textY, masked, m_textColor);
+                }
+                else
+                {
+                    m_window->drawText(textX, textY, m_text, m_textColor);
+                }
+            }
+            else if (m_placeholder[0] != '\0')
+            {
+                // Draw placeholder with dimmed color
+                Color placeholderColor(160, 160, 160, 255);
+                m_window->drawText(textX, textY, m_placeholder, placeholderColor);
+            }
 
             // Draw cursor if focused
-            // if (m_focused)
-            // {
-            //     draw cursor at m_cursorPos
-            // }
+            if (m_focused)
+            {
+                // Simple cursor rendering (vertical line)
+                QC::i32 cursorX = abs.x + 4 + static_cast<QC::i32>(m_cursorPos * 8); // Assume 8px char width
+                Rect cursorRect = {cursorX, abs.y + 2, 1, abs.height - 4};
+                m_window->fillRect(cursorRect, m_textColor);
+            }
 
             // Draw selection if any
-            // if (m_selStart != m_selEnd)
-            // {
-            //     highlight selection
-            // }
-        }
-
-        void TextBox::handleKeyDown(QC::u8 scancode, QC::u8 keycode, QK::Event::Modifiers mods)
-        {
-            if (!m_enabled)
-                return;
-
-            (void)keycode;
-            (void)mods;
-            // TODO: Map scancodes to actions
-            // Handle arrow keys, home, end, delete, backspace
-            (void)scancode;
-        }
-
-        void TextBox::handleChar(char c)
-        {
-            if (!m_enabled || m_readOnly)
-                return;
-
-            // Delete selection first if any
             if (m_selStart != m_selEnd)
             {
                 QC::usize start = m_selStart < m_selEnd ? m_selStart : m_selEnd;
                 QC::usize end = m_selStart > m_selEnd ? m_selStart : m_selEnd;
-
-                // Remove selected text
-                QC::usize remaining = m_textLength - end;
-                for (QC::usize i = 0; i <= remaining; ++i)
-                {
-                    m_text[start + i] = m_text[end + i];
-                }
-                m_textLength -= (end - start);
-                m_cursorPos = start;
-                clearSelection();
+                QC::i32 selX = abs.x + 4 + static_cast<QC::i32>(start * 8);
+                QC::u32 selWidth = static_cast<QC::u32>((end - start) * 8);
+                Rect selRect = {selX, abs.y + 2, selWidth, abs.height - 4};
+                m_window->fillRect(selRect, m_selectionColor);
             }
-
-            insertChar(c);
         }
 
-        void TextBox::handleMouseDown(QC::i32 x, QC::i32 y, QK::Event::MouseButton button)
+        bool TextBox::onKeyDown(QC::u8 scancode, QC::u8 keycode, char character, QK::Event::Modifiers mods)
+        {
+            if (!m_enabled)
+                return false;
+
+            (void)keycode;
+
+            // Handle printable characters
+            if (character >= 32 && character < 127 && !m_readOnly)
+            {
+                // Delete selection first if any
+                if (m_selStart != m_selEnd)
+                {
+                    QC::usize start = m_selStart < m_selEnd ? m_selStart : m_selEnd;
+                    QC::usize end = m_selStart > m_selEnd ? m_selStart : m_selEnd;
+
+                    QC::usize remaining = m_textLength - end;
+                    for (QC::usize i = 0; i <= remaining; ++i)
+                    {
+                        m_text[start + i] = m_text[end + i];
+                    }
+                    m_textLength -= (end - start);
+                    m_cursorPos = start;
+                    clearSelection();
+                }
+                insertChar(character);
+                invalidate();
+                return true;
+            }
+
+            // Handle special keys
+            bool shift = (static_cast<QC::u8>(mods) & static_cast<QC::u8>(QK::Event::Modifiers::Shift)) != 0;
+            (void)scancode;
+
+            // TODO: Map scancodes to actions (arrows, home, end, delete, backspace)
+
+            return false;
+        }
+
+        bool TextBox::onMouseMove(QC::i32 x, QC::i32 y, QC::i32 deltaX, QC::i32 deltaY)
+        {
+            (void)deltaX;
+            (void)deltaY;
+            (void)x;
+            (void)y;
+            // TODO: Handle selection dragging
+            return hitTest(x, y);
+        }
+
+        bool TextBox::onMouseDown(QC::i32 x, QC::i32 y, QK::Event::MouseButton button)
         {
             if (!m_enabled || button != QK::Event::MouseButton::Left)
-                return;
+                return false;
 
-            bool inside = x >= m_bounds.x && x < m_bounds.x + static_cast<QC::i32>(m_bounds.width) &&
-                          y >= m_bounds.y && y < m_bounds.y + static_cast<QC::i32>(m_bounds.height);
+            bool inside = hitTest(x, y);
 
             if (inside)
             {
                 setFocused(true);
                 // TODO: Calculate cursor position from x coordinate
                 clearSelection();
+                invalidate();
+                return true;
             }
+
+            return false;
         }
 
-        void TextBox::handleMouseMove(QC::i32 x, QC::i32 y)
-        {
-            (void)x;
-            (void)y;
-            // TODO: Handle selection dragging
-        }
-
-        void TextBox::handleMouseUp(QC::i32 x, QC::i32 y, QK::Event::MouseButton button)
+        bool TextBox::onMouseUp(QC::i32 x, QC::i32 y, QK::Event::MouseButton button)
         {
             (void)x;
             (void)y;
             (void)button;
+            return false;
         }
 
-        void TextBox::setFocused(bool focused)
+        void TextBox::onFocus()
         {
-            m_focused = focused;
-            if (!focused)
-            {
-                clearSelection();
-            }
+            invalidate();
+        }
+
+        void TextBox::onBlur()
+        {
+            clearSelection();
+            invalidate();
         }
 
         void TextBox::insertChar(char c)

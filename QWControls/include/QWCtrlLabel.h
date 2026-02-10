@@ -4,6 +4,7 @@
 // Namespace: QW::Controls
 
 #include "QCTypes.h"
+#include "QWCtrlBase.h"
 #include "QWWindowManager.h"
 #include "QWWindow.h"
 #include "QKEventTypes.h"
@@ -28,18 +29,16 @@ namespace QW
             Bottom
         };
 
-        class Label
+        class Label : public ControlBase
         {
         public:
-            Label(Window *parent, const char *text, Rect bounds);
-            ~Label();
+            Label();
+            Label(Window *window, const char *text, Rect bounds);
+            virtual ~Label();
 
             // Properties
             const char *text() const { return m_text; }
             void setText(const char *text);
-
-            Rect bounds() const { return m_bounds; }
-            void setBounds(const Rect &bounds) { m_bounds = bounds; }
 
             // Alignment
             TextAlign textAlign() const { return m_textAlign; }
@@ -53,29 +52,23 @@ namespace QW
             void setWordWrap(bool wrap) { m_wordWrap = wrap; }
 
             // Appearance
-            Color backgroundColor() const { return m_bgColor; }
-            void setBackgroundColor(Color color) { m_bgColor = color; }
-
             Color textColor() const { return m_textColor; }
             void setTextColor(Color color) { m_textColor = color; }
 
             bool transparent() const { return m_transparent; }
             void setTransparent(bool transparent) { m_transparent = transparent; }
 
-            // Rendering
-            void paint();
+            // Rendering (override from ControlBase)
+            void paint() override;
 
         private:
-            Window *m_parent;
             char *m_text;
-            Rect m_bounds;
 
             TextAlign m_textAlign;
             VerticalAlign m_verticalAlign;
             bool m_wordWrap;
             bool m_transparent;
 
-            Color m_bgColor;
             Color m_textColor;
         };
 

@@ -4,38 +4,51 @@
 #include "QWCtrlListView.h"
 #include "QCMemUtil.h"
 #include "QCString.h"
+#include "QWWindow.h"
 
 namespace QW
 {
     namespace Controls
     {
 
-        ListView::ListView(Window *parent, Rect bounds)
-            : m_parent(parent),
-              m_bounds(bounds),
-              m_enabled(true),
+        ListView::ListView()
+            : ControlBase(),
               m_selectionMode(SelectionMode::Single),
               m_scrollOffset(0),
               m_itemHeight(20),
               m_showHeader(true),
-              m_bgColor(Color(255, 255, 255, 255)),
               m_textColor(Color(0, 0, 0, 255)),
               m_selColor(Color(0, 120, 215, 255)),
+              m_headerColor(Color(230, 230, 230, 255)),
               m_selChangeHandler(nullptr),
               m_selChangeUserData(nullptr),
               m_dblClickHandler(nullptr),
               m_dblClickUserData(nullptr),
               m_hoverIndex(-1)
         {
+            m_bgColor = Color(255, 255, 255, 255);
+        }
+
+        ListView::ListView(Window *window, Rect bounds)
+            : ControlBase(window, bounds),
+              m_selectionMode(SelectionMode::Single),
+              m_scrollOffset(0),
+              m_itemHeight(20),
+              m_showHeader(true),
+              m_textColor(Color(0, 0, 0, 255)),
+              m_selColor(Color(0, 120, 215, 255)),
+              m_headerColor(Color(230, 230, 230, 255)),
+              m_selChangeHandler(nullptr),
+              m_selChangeUserData(nullptr),
+              m_dblClickHandler(nullptr),
+              m_dblClickUserData(nullptr),
+              m_hoverIndex(-1)
+        {
+            m_bgColor = Color(255, 255, 255, 255);
         }
 
         ListView::~ListView()
         {
-        }
-
-        void ListView::setBounds(const Rect &bounds)
-        {
-            m_bounds = bounds;
         }
 
         void ListView::addColumn(const char *header, QC::u32 width, TextAlign align)
@@ -244,24 +257,71 @@ namespace QW
 
         void ListView::paint()
         {
-            if (!m_parent)
+            if (!m_window || !m_visible)
                 return;
 
-            // TODO: Use window drawing primitives
+            Rect abs = absoluteBounds();
+
             // Draw background
-            // m_parent->fillRect(m_bounds, m_bgColor);
+            m_window->fillRect(abs, m_bgColor);
+            m_window->drawRect(abs, Color(128, 128, 128, 255));
+
+            QC::i32 currentY = abs.y;
 
             // Draw header if enabled
-            // ...
+            if (m_showHeader && m_columns.size() > 0)
+            {
+                Rect headerRect = {abs.x, currentY, abs.width, m_itemHeight};
+                m_window->fillRect(headerRect, m_headerColor);
+
+                QC::i32 colX = abs.x;
+                for (QC::usize i = 0; i < m_columns.size(); ++i)
+                {
+                    m_window->drawText(colX + 4, currentY + static_cast<QC::i32>(m_itemHeight / 2),
+                                       m_columns[i].header, m_textColor);
+                    colX += static_cast<QC::i32>(m_columns[i].width);
+                }
+                currentY += static_cast<QC::i32>(m_itemHeight);
+            }
 
             // Draw visible items
-            // ...
+            QC::usize visible = visibleItemCount();
+            for (QC::usize i = 0; i < visible && (m_scrollOffset + i) < m_items.size(); ++i)
+            {
+                QC::usize itemIndex = m_scrollOffset + i;
+                const ListViewItem &item = m_items[itemIndex];
+
+                Rect itemRect = {abs.x, currentY, abs.width, m_itemHeight};
+
+                // Draw selection background
+                if (item.selected)
+                {
+                    m_window->fillRect(itemRect, m_selColor);
+                    m_window->drawText(abs.x + 4, currentY + static_cast<QC::i32>(m_itemHeight / 2),
+                                       item.text, Color(255, 255, 255, 255));
+                }
+                else
+                {
+                    m_window->drawText(abs.x + 4, currentY + static_cast<QC::i32>(m_itemHeight / 2),
+                                       item.text, m_textColor);
+                }
+
+                currentY += static_cast<QC::i32>(m_itemHeight);
+            }
         }
 
-        void ListView::handleMouseDown(QC::i32 x, QC::i32 y, QK::Event::MouseButton button)
+        bool ListView::onMouseMove(QC::i32 x, QC::i32 y, QC::i32 deltaX, QC::i32 deltaY)
+        {
+            (void)deltaX;
+            (void)deltaY;
+            m_hoverIndex = static_cast<QC::i32>(itemAtPoint(x, y));
+            return hitTest(x, y);
+        }
+
+        bool ListView::onMouseDown(QC::i32 x, QC::i32 y, QK::Event::MouseButton button)
         {
             if (!m_enabled || button != QK::Event::MouseButton::Left)
-                return;
+                return false;
 
             QC::isize index = itemAtPoint(x, y);
             if (index >= 0)
@@ -272,55 +332,65 @@ namespace QW
                 }
                 else if (m_selectionMode == SelectionMode::Multiple)
                 {
-                    m_items[index].selected = !m_items[index].selected;
+                    m_items[static_cast<QC::usize>(index)].selected = !m_items[static_cast<QC::usize>(index)].selected;
                     if (m_selChangeHandler)
                     {
                         m_selChangeHandler(this, m_selChangeUserData);
                     }
                 }
+                invalidate();
+                return true;
             }
+
+            return hitTest(x, y);
         }
 
-        void ListView::handleMouseUp(QC::i32 x, QC::i32 y, QK::Event::MouseButton button)
+        bool ListView::onMouseUp(QC::i32 x, QC::i32 y, QK::Event::MouseButton button)
         {
             (void)x;
             (void)y;
             (void)button;
+            return false;
         }
 
-        void ListView::handleMouseMove(QC::i32 x, QC::i32 y)
-        {
-            m_hoverIndex = static_cast<QC::i32>(itemAtPoint(x, y));
-        }
-
-        void ListView::handleMouseWheel(QC::i32 delta)
+        bool ListView::onMouseScroll(QC::i32 delta)
         {
             if (delta > 0 && m_scrollOffset > 0)
             {
                 m_scrollOffset--;
+                invalidate();
+                return true;
             }
             else if (delta < 0 && m_scrollOffset + visibleItemCount() < m_items.size())
             {
                 m_scrollOffset++;
+                invalidate();
+                return true;
             }
+            return false;
         }
 
-        void ListView::handleKeyDown(QC::u8 scancode, QK::Event::Modifiers mods)
+        bool ListView::onKeyDown(QC::u8 scancode, QC::u8 keycode, char character, QK::Event::Modifiers mods)
         {
             (void)scancode;
+            (void)keycode;
+            (void)character;
             (void)mods;
             // TODO: Handle arrow keys for navigation
+            return false;
         }
 
         QC::isize ListView::itemAtPoint(QC::i32 x, QC::i32 y)
         {
-            if (x < m_bounds.x || x >= m_bounds.x + static_cast<QC::i32>(m_bounds.width))
+            Rect abs = absoluteBounds();
+
+            if (x < abs.x || x >= abs.x + static_cast<QC::i32>(abs.width))
                 return -1;
 
             QC::i32 headerHeight = m_showHeader ? static_cast<QC::i32>(m_itemHeight) : 0;
-            QC::i32 contentY = m_bounds.y + headerHeight;
+            QC::i32 contentY = abs.y + headerHeight;
 
-            if (y < contentY || y >= m_bounds.y + static_cast<QC::i32>(m_bounds.height))
+            if (y < contentY || y >= abs.y + static_cast<QC::i32>(abs.height))
                 return -1;
 
             QC::usize relY = static_cast<QC::usize>(y - contentY);

@@ -4,6 +4,7 @@ add_library(QCommon STATIC
     src/QCLogger.cpp
     src/QCxxAbi.cpp
     src/QCMemUtil.c
+    src/QCUIStyle.cpp
 )
 
 target_include_directories(QCommon PUBLIC include)

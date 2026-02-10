@@ -5,7 +5,7 @@
 #include "PS2/QKDrvPS2Mouse.h"
 #include "PS2/QKDrvPS2Keyboard.h"
 #include "UHCI/QKDrvUHCI.h"
-#include "XHCI/QKDrvXHCI.h"
+#include "XHCI/xhci.h"
 #include "QArchPCI.h"
 #include "QCLogger.h"
 
@@ -24,8 +24,7 @@ namespace QKDrv
 
         m_mouseDriver = nullptr;
         m_keyboardDriver = nullptr;
-        m_screenWidth = 1024;
-        m_screenHeight = 768;
+        // Note: m_screenWidth/m_screenHeight should be set by setScreenSize() before initialize()
 
         // Probe for USB controllers first (preferred for tablet support)
         probeUSB();
@@ -81,17 +80,25 @@ namespace QKDrv
             }
         }
 
-        // Initialize PS/2 mouse
-        PS2::Mouse &mouse = PS2::Mouse::instance();
-        if (mouse.initialize() == QC::Status::Success)
+        // Initialize PS/2 mouse - but skip if we already have a USB tablet
+        if (!m_mouseDriver)
         {
-            m_controllers.push_back(&mouse);
-            // Only use PS/2 mouse if no USB mouse/tablet available
-            if (!m_mouseDriver)
+            PS2::Mouse &mouse = PS2::Mouse::instance();
+            if (mouse.initialize() == QC::Status::Success)
             {
-                m_mouseDriver = &mouse;
-                mouse.setBounds(0, 0, m_screenWidth - 1, m_screenHeight - 1);
+                m_controllers.push_back(&mouse);
+                // Only use PS/2 mouse if no USB mouse/tablet available
+                if (!m_mouseDriver)
+                {
+                    m_mouseDriver = &mouse;
+                    QC_LOG_INFO("QKDrv", "Setting mouse bounds to %ux%u", m_screenWidth, m_screenHeight);
+                    mouse.setBounds(0, 0, m_screenWidth - 1, m_screenHeight - 1);
+                }
             }
+        }
+        else
+        {
+            QC_LOG_INFO("QKDrv", "Skipping PS/2 mouse - USB tablet available");
         }
     }
 
@@ -100,24 +107,31 @@ namespace QKDrv
         QC_LOG_INFO("QKDrv", "Probing USB controllers");
 
         QArch::PCI &pci = QArch::PCI::instance();
+        QC_LOG_INFO("QKDrv", "Scanning %lu PCI devices", pci.devices().size());
 
         // Find xHCI controllers (USB 3.0) - preferred
         for (QC::usize i = 0; i < pci.devices().size(); ++i)
         {
+            QC_LOG_INFO("QKDrv", "Checking PCI device %lu", i);
             QArch::PCIDevice &dev = const_cast<QArch::PCIDevice &>(pci.devices()[i]);
-            XHCI::Controller *xhci = XHCI::Controller::probe(&dev);
+            QC_LOG_INFO("QKDrv", "Device class=%02x subclass=%02x progIF=%02x",
+                        static_cast<QC::u8>(dev.classCode), dev.subclass, dev.progIF);
+            XHCI::XHCIController *xhci = XHCI::xhci_init(&dev);
             if (xhci)
             {
-                if (xhci->initialize() == QC::Status::Success)
+                QC_LOG_INFO("QKDrv", "Initializing xHCI controller...");
+                QC::Status status = xhci->initialize();
+                QC_LOG_INFO("QKDrv", "xHCI initialize returned %d", static_cast<int>(status));
+                if (status == QC::Status::Success)
                 {
                     m_controllers.push_back(xhci);
                     xhci->setScreenSize(m_screenWidth, m_screenHeight);
 
-                    // If this controller has a tablet, prefer it
-                    if (xhci->hasTablet())
+                    // If this controller has a tablet, use it as mouse driver
+                    if (xhci->hasTablet() && xhci->tabletDriver())
                     {
-                        QC_LOG_INFO("QKDrv", "xHCI controller has USB tablet");
-                        // TODO: Set xhci as mouse driver when tablet support is complete
+                        QC_LOG_INFO("QKDrv", "Using USB tablet as mouse driver");
+                        m_mouseDriver = xhci->tabletDriver();
                     }
                 }
                 else

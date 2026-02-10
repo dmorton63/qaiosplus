@@ -105,3 +105,46 @@ struct limine_memmap_request
                0x67cf3d9d378a806fULL, 0xe304acdfc50c3c62ULL},                                                   \
         .revision = 0,                                                                                          \
         .response = nullptr};
+
+// HHDM (Higher Half Direct Map) structures
+struct limine_hhdm_response
+{
+    uint64_t revision;
+    uint64_t offset; // Virtual address offset to add to physical addresses
+};
+
+struct limine_hhdm_request
+{
+    uint64_t id[4];
+    uint64_t revision;
+    struct limine_hhdm_response *response;
+};
+
+#define LIMINE_HHDM_REQUEST                                                                                 \
+    __attribute__((used, section(".limine_requests"))) volatile struct limine_hhdm_request hhdm_request = { \
+        .id = {LIMINE_COMMON_MAGIC_0, LIMINE_COMMON_MAGIC_1,                                                \
+               0x48dcf1cb8ad2b852ULL, 0x63984e959a98244bULL},                                               \
+        .revision = 0,                                                                                      \
+        .response = nullptr};
+
+// Kernel Address structures (to get physical/virtual base)
+struct limine_kernel_address_response
+{
+    uint64_t revision;
+    uint64_t physical_base;
+    uint64_t virtual_base;
+};
+
+struct limine_kernel_address_request
+{
+    uint64_t id[4];
+    uint64_t revision;
+    struct limine_kernel_address_response *response;
+};
+
+#define LIMINE_KERNEL_ADDRESS_REQUEST                                                                                        \
+    __attribute__((used, section(".limine_requests"))) volatile struct limine_kernel_address_request kernel_addr_request = { \
+        .id = {LIMINE_COMMON_MAGIC_0, LIMINE_COMMON_MAGIC_1,                                                                 \
+               0x71ba76863cc55f63ULL, 0xb2644a48c516a487ULL},                                                                \
+        .revision = 0,                                                                                                       \
+        .response = nullptr};

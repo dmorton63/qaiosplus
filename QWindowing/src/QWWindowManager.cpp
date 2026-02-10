@@ -342,31 +342,4 @@ namespace QW
             window->bounds().height);
     }
 
-    bool Rect::intersects(const Rect &other) const
-    {
-        return !(x + static_cast<QC::i32>(width) <= other.x ||
-                 other.x + static_cast<QC::i32>(other.width) <= x ||
-                 y + static_cast<QC::i32>(height) <= other.y ||
-                 other.y + static_cast<QC::i32>(other.height) <= y);
-    }
-
-    Rect Rect::intersection(const Rect &other) const
-    {
-        QC::i32 x1 = x > other.x ? x : other.x;
-        QC::i32 y1 = y > other.y ? y : other.y;
-        QC::i32 x2 = (x + static_cast<QC::i32>(width)) < (other.x + static_cast<QC::i32>(other.width))
-                         ? (x + static_cast<QC::i32>(width))
-                         : (other.x + static_cast<QC::i32>(other.width));
-        QC::i32 y2 = (y + static_cast<QC::i32>(height)) < (other.y + static_cast<QC::i32>(other.height))
-                         ? (y + static_cast<QC::i32>(height))
-                         : (other.y + static_cast<QC::i32>(other.height));
-
-        if (x2 <= x1 || y2 <= y1)
-        {
-            return Rect{0, 0, 0, 0};
-        }
-
-        return Rect{x1, y1, static_cast<QC::u32>(x2 - x1), static_cast<QC::u32>(y2 - y1)};
-    }
-
 } // namespace QW

@@ -2,14 +2,59 @@
 
 ## Overview
 
-QDesktop will be a JSON-driven desktop environment with Windows Vista/Aero-style visual effects including:
-- Glass/transparency effects
+QDesktop will be a JSON-driven desktop environment with multiple visual style options:
+- **Vista** - Windows Vista/Aero-style with glass, transparency, glow effects
+- **Metro** - Windows 8/10 flat design with clean edges and accent colors
+- **QWStyle** - Modern hybrid inspired by Windows 11/macOS (our unique take)
+
+Features include:
+- Glass/transparency effects (Vista mode)
 - Glow highlights on focused elements
 - Drop shadows
 - Smooth gradients and blur effects
 - Animated transitions
 
 The desktop layout, themes, and styling will be fully configurable via JSON files.
+
+---
+
+## Architecture: UIStyle System
+
+### Global Style Selector
+```cpp
+// QCommon/include/QCUIStyle.h
+namespace QC
+{
+    enum class UIStyle : u8
+    {
+        Vista,    // Aero glass, gradients, glow, transparency
+        Metro,    // Flat design, solid colors, sharp edges
+        QWStyle   // Modern hybrid (Win11/macOS inspired, unique)
+    };
+
+    /// Global UI style - affects all control rendering
+    UIStyle currentUIStyle();
+    void setUIStyle(UIStyle style);
+}
+```
+
+### Style-Aware Rendering
+- Controls query `currentUIStyle()` during paint
+- Frame class adapts borders/shadows based on style
+- Theme colors shift per-style (glass tints vs flat colors)
+- Animation timings vary (Vista: smooth, Metro: snappy, QWStyle: fluid)
+
+### Style Characteristics
+
+| Feature          | Vista              | Metro              | QWStyle            |
+|------------------|--------------------|--------------------|--------------------|
+| Borders          | 3D raised/sunken   | Flat, 1px          | Subtle rounded     |
+| Backgrounds      | Gradient + glass   | Solid flat         | Soft gradient      |
+| Shadows          | Drop shadow        | None/minimal       | Soft ambient       |
+| Corners          | Slight rounding    | Square             | Rounded (6-8px)    |
+| Hover effect     | Glow               | Color shift        | Subtle lift        |
+| Focus indicator  | Glowing border     | Accent underline   | Ring + shadow      |
+| Animations       | Smooth fade        | Quick snap         | Fluid spring       |
 
 ---
 
@@ -78,13 +123,24 @@ The desktop layout, themes, and styling will be fully configurable via JSON file
 
 ## Phase 3: Enhanced Renderer
 
+### 3.0 Graphics Abstraction (COMPLETE)
+- [x] `QGraphics` module created with abstract `IPainter` interface
+- [x] `QGPen` class for stroke styles (color, width, dash)
+- [x] `QGBrush` class for fill styles (solid, gradient)
+- [x] `QCGeometry.h` - Point, Size, Rect, Margins in QCommon
+- [x] `QCColor.h` - Color with blend(), lerp(), darker(), lighter()
+- [x] Window implements IPainter interface
+- [x] Controls paint through IPainter abstraction
+
 ### 3.1 Alpha Blending (`QWRenderer` extensions)
-- [ ] Full ARGB color support (already partial)
+- [x] Full ARGB color support
+- [x] Alpha blending in fillRect, blit operations
 - [ ] Porter-Duff compositing modes
 - [ ] Pre-multiplied alpha optimization
 
 ### 3.2 Gradient Rendering
-- [ ] Linear gradients (horizontal, vertical, diagonal)
+- [x] Linear gradients (horizontal, vertical)
+- [ ] Diagonal gradients
 - [ ] Radial gradients
 - [ ] Multi-stop gradient support
 
@@ -94,8 +150,9 @@ The desktop layout, themes, and styling will be fully configurable via JSON file
 - [ ] Cached blur textures for glass effect
 
 ### 3.4 Shadow Rendering
-- [ ] Drop shadow with configurable offset/blur
-- [ ] Inner shadow for pressed states
+- [x] Drop shadow with configurable offset/blur (in Frame)
+- [x] Inner shadow for pressed states (in Frame)
+- [x] Soft shadow layers (in Frame)
 - [ ] Shadow caching for performance
 
 ### 3.5 Glow Effects
@@ -111,13 +168,25 @@ The desktop layout, themes, and styling will be fully configurable via JSON file
 
 ## Phase 4: Desktop Manager
 
-### 4.1 Core Desktop Manager (`QDesktop/QDManager.h/.cpp`)
-- [ ] Singleton pattern
-- [ ] Theme loading and switching
-- [ ] Desktop layout management
-- [ ] Wallpaper handling
-- [ ] Icon grid management
-- [ ] System tray / notification area
+### 4.0 Desktop Shell (COMPLETE)
+- [x] `QDAccent.h/.cpp` - Accent color system (Electric Blue, Teal, Orange, Purple)
+- [x] `DesktopColors` - Style-aware color palettes for all UI elements
+- [x] `QDDesktop.h/.cpp` - Main desktop manager that orchestrates layout
+- [x] `QDTopBar.h/.cpp` - Top header bar (logo, title, clock, system icons)
+- [x] `QDSidebar.h/.cpp` - Left dock (Home, Apps, Settings, Files, Terminal, Power)
+- [x] `QDTaskbar.h/.cpp` - Bottom task switcher (window buttons, tray, clock)
+- [x] Background gradients per UIStyle (QWStyle/Metro/Vista)
+- [x] Hit testing for all desktop zones
+
+### 4.1 Core Desktop Manager Enhancements
+- [x] Basic desktop layout management
+- [x] Window registration in taskbar
+- [x] Active window tracking
+- [ ] Singleton pattern (global accessor)
+- [ ] Theme loading and switching from JSON
+- [ ] Wallpaper handling (when image loading available)
+- [ ] Desktop icon grid management
+- [ ] System tray / notification area (functional)
 
 ### 4.2 Desktop Layout JSON
 ```json
@@ -155,14 +224,25 @@ The desktop layout, themes, and styling will be fully configurable via JSON file
 
 ## Phase 5: Enhanced Controls
 
+### 5.0 Control Infrastructure (COMPLETE)
+- [x] `IControl` interface with full event handling
+- [x] `ControlBase` - Common base class with bounds, state, hierarchy
+- [x] `Container` - Base class for controls that hold children
+- [x] `Frame` - Dedicated border/shadow/gradient rendering component
+- [x] `Panel` - Decorated container (Container + Frame)
+- [x] Controls paint via `IPainter` abstraction
+
 ### 5.1 Base Control Enhancements
-- [ ] `QWCtrlBase` - Common control base class
-  - Themed rendering
-  - Animation state machine
-  - Event handling
-  - Layout constraints
+- [x] `QWCtrlBase` - Common control base class
+  - [x] Event handling (IEventReceiver)
+  - [x] Bounds and state management
+  - [x] Parent/window hierarchy
+- [ ] Themed rendering (per UIStyle)
+- [ ] Animation state machine
+- [ ] Layout constraints
 
 ### 5.2 Vista-Style Button (`QWCtrlButton` upgrade)
+- [x] Basic button with background/border
 - [ ] Gradient background with glass effect
 - [ ] Glow on hover (animated fade-in)
 - [ ] Press animation (darken + slight shrink)
@@ -170,25 +250,36 @@ The desktop layout, themes, and styling will be fully configurable via JSON file
 - [ ] Focus ring with glow
 
 ### 5.3 Text Box (`QWCtrlTextBox` upgrade)
+- [x] Basic text input with cursor
+- [x] Selection highlighting
 - [ ] Glass-style background
 - [ ] Glowing border on focus
-- [ ] Selection highlighting
 - [ ] Cursor blinking animation
 - [ ] Placeholder text with alpha
 
-### 5.4 New Controls Needed
-- [ ] `QWCtrlScrollBar` - Themed scrollbar with glass track
+### 5.4 Controls Created
+- [x] `QWCtrlScrollBar` - Vertical/horizontal scrollbar with thumb
+- [x] `QWCtrlComboBox` - Dropdown combo box
+- [x] `QWCtrlLabel` - Text label control
+- [x] `QWCtrlListView` - Multi-column list with selection
+
+### 5.5 Controls Still Needed
 - [ ] `QWCtrlCheckBox` - Check mark with glow animation
 - [ ] `QWCtrlRadioButton` - Radio with glow
-- [ ] `QWCtrlSlider` - Glass track with glowing thumb
-- [ ] `QWCtrlProgressBar` - Glass with animated glow pulse
-- [ ] `QWCtrlDropDown` - Combo box with glass dropdown
+- [ ] `QWCtrlSlider` - Track with thumb
+- [ ] `QWCtrlProgressBar` - Progress indicator
 - [ ] `QWCtrlTabControl` - Tabbed container
 - [ ] `QWCtrlTreeView` - Hierarchical view with expand animation
-- [ ] `QWCtrlToolbar` - Glass toolbar with button groups
-- [ ] `QWCtrlMenu` - Popup menus with glass effect
-- [ ] `QWCtrlTooltip` - Fade-in glass tooltip
-- [ ] `QWCtrlStatusBar` - Glass status bar
+- [ ] `QWCtrlToolbar` - Toolbar with button groups
+- [ ] `QWCtrlMenu` - Popup menus
+- [ ] `QWCtrlTooltip` - Fade-in tooltip
+- [ ] `QWCtrlStatusBar` - Status bar
+
+### 5.6 UIStyle-Aware Controls (NEW)
+- [ ] All controls query `currentUIStyle()` for rendering
+- [ ] Frame adapts to style (3D vs flat vs rounded)
+- [ ] Per-style color palettes
+- [ ] Per-style hover/focus effects
 
 ---
 
@@ -316,22 +407,25 @@ The desktop layout, themes, and styling will be fully configurable via JSON file
 ```
 QDesktop/
 ├── CMakeLists.txt
+├── TODO_README.md
 ├── include/
-│   ├── QDManager.h         # Desktop manager
-│   ├── QDTheme.h           # Theme definitions
-│   ├── QDTaskbar.h         # Taskbar
-│   ├── QDStartMenu.h       # Start menu
-│   ├── QDDesktopIcons.h    # Icon grid
-│   ├── QDJson.h            # JSON parser
-│   └── QDAnimation.h       # Animation system
+│   ├── QDAccent.h          # Accent colors & style palettes (DONE)
+│   ├── QDDesktop.h         # Desktop manager (DONE)
+│   ├── QDTopBar.h          # Top header bar (DONE)
+│   ├── QDSidebar.h         # Left dock/launcher (DONE)
+│   ├── QDTaskbar.h         # Bottom task switcher (DONE)
+│   ├── QDTheme.h           # Theme definitions (TODO)
+│   ├── QDStartMenu.h       # Start menu (TODO)
+│   ├── QDDesktopIcons.h    # Icon grid (TODO)
+│   ├── QDJson.h            # JSON parser (TODO)
+│   └── QDAnimation.h       # Animation system (TODO)
 ├── src/
-│   ├── QDManager.cpp
-│   ├── QDTheme.cpp
-│   ├── QDTaskbar.cpp
-│   ├── QDStartMenu.cpp
-│   ├── QDDesktopIcons.cpp
-│   ├── QDJson.cpp
-│   └── QDAnimation.cpp
+│   ├── QDAccent.cpp        # (DONE)
+│   ├── QDDesktop.cpp       # (DONE)
+│   ├── QDTopBar.cpp        # (DONE)
+│   ├── QDSidebar.cpp       # (DONE)
+│   ├── QDTaskbar.cpp       # (DONE)
+│   └── ... (future files)
 └── themes/
     └── (JSON theme files for testing)
 ```
@@ -340,11 +434,12 @@ QDesktop/
 
 ## Dependencies
 
-- `QFileSystem` - Reading JSON files
-- `QWindowing` - Window management
+- `QCommon` - Types, geometry, colors, UIStyle
+- `QGraphics` - IPainter abstraction
+- `QWindowing` - Window management (Window implements IPainter)
 - `QWControls` - Control widgets
-- `QEvent` - Input handling
-- `QKMemory` - Memory allocation
+- `QFileSystem` - Reading JSON files (future)
+- `QEvent` - Input handling (future)
 
 ---
 
@@ -355,7 +450,43 @@ QDesktop/
 3. **Image loading** - BMP loader exists? PNG support needed?
 4. **Timer system** - Need millisecond-precision timer for animations
 5. **Multi-monitor** - Support multiple displays eventually?
+6. **UIStyle persistence** - Save style preference to config file? Registry-like system?
+7. **Style transitions** - Animate between styles or instant switch?
 
 ---
 
-*Last Updated: February 9, 2026*
+## Completed Infrastructure Summary
+
+### QCommon
+- `QCTypes.h` - Core types (u8, u16, u32, i8, i16, i32, etc.)
+- `QCGeometry.h` - Point, Size, Rect, Margins
+- `QCColor.h` - Color with ARGB, blend, lerp, predefined colors
+- `QCUIStyle.h` - UIStyle enum (Vista, Metro, QWStyle) + style helpers
+
+### QGraphics
+- `QGPainter.h` - IPainter abstract interface
+- `QGPen.h` - Pen class for strokes
+- `QGBrush.h` - Brush class for fills
+
+### QWindowing
+- `Window` implements IPainter
+- Full rendering methods: fillRect, drawRect, drawLine, gradients, borders
+
+### QWControls
+- `IControl` / `ControlBase` - Control hierarchy
+- `Container` - Child control management
+- `Frame` - Visual decoration (borders, shadows, gradients)
+- `Panel` - Container + Frame
+- `Button`, `Label`, `TextBox`, `ListView`, `ScrollBar`, `ComboBox`
+
+### QDesktop (NEW)
+- `QDAccent` - Accent colors (Electric Blue, Teal, Orange, Purple)
+- `DesktopColors` - Style-aware color palettes
+- `QDDesktop` - Main desktop orchestrator
+- `QDTopBar` - Top header (32px - logo, title, clock, system icons)
+- `QDSidebar` - Left dock (64px - Home, Apps, Settings, Files, Terminal, Power)
+- `QDTaskbar` - Bottom bar (40px - window buttons, tray, clock)
+
+---
+
+*Last Updated: February 10, 2026*

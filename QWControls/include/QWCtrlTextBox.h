@@ -4,6 +4,7 @@
 // Namespace: QW::Controls
 
 #include "QCTypes.h"
+#include "QWCtrlBase.h"
 #include "QWWindowManager.h"
 #include "QWWindow.h"
 #include "QKEventTypes.h"
@@ -17,11 +18,12 @@ namespace QW
         class TextBox;
         using TextChangeHandler = void (*)(TextBox *textBox, void *userData);
 
-        class TextBox
+        class TextBox : public ControlBase
         {
         public:
-            TextBox(Window *parent, Rect bounds);
-            ~TextBox();
+            TextBox();
+            TextBox(Window *window, Rect bounds);
+            virtual ~TextBox();
 
             // Properties
             const char *text() const { return m_text; }
@@ -29,12 +31,6 @@ namespace QW
 
             const char *placeholder() const { return m_placeholder; }
             void setPlaceholder(const char *placeholder);
-
-            Rect bounds() const { return m_bounds; }
-            void setBounds(const Rect &bounds) { m_bounds = bounds; }
-
-            bool isEnabled() const { return m_enabled; }
-            void setEnabled(bool enabled) { m_enabled = enabled; }
 
             bool isReadOnly() const { return m_readOnly; }
             void setReadOnly(bool readOnly) { m_readOnly = readOnly; }
@@ -56,36 +52,33 @@ namespace QW
             void clearSelection();
 
             // Appearance
-            Color backgroundColor() const { return m_bgColor; }
-            void setBackgroundColor(Color color) { m_bgColor = color; }
-
             Color textColor() const { return m_textColor; }
             void setTextColor(Color color) { m_textColor = color; }
+
+            Color borderColor() const { return m_borderColor; }
+            void setBorderColor(Color color) { m_borderColor = color; }
+
+            Color selectionColor() const { return m_selectionColor; }
+            void setSelectionColor(Color color) { m_selectionColor = color; }
 
             // Events
             void setTextChangeHandler(TextChangeHandler handler, void *userData);
 
-            // Rendering
-            void paint();
+            // Rendering (override from ControlBase)
+            void paint() override;
 
-            // Input handling (using QEvent types)
-            void handleKeyDown(QC::u8 scancode, QC::u8 keycode, QK::Event::Modifiers mods);
-            void handleChar(char c);
-            void handleMouseDown(QC::i32 x, QC::i32 y, QK::Event::MouseButton button);
-            void handleMouseMove(QC::i32 x, QC::i32 y);
-            void handleMouseUp(QC::i32 x, QC::i32 y, QK::Event::MouseButton button);
-
-            // Focus
-            void setFocused(bool focused);
-            bool isFocused() const { return m_focused; }
+            // Event handlers (override from ControlBase)
+            bool onMouseMove(QC::i32 x, QC::i32 y, QC::i32 deltaX, QC::i32 deltaY) override;
+            bool onMouseDown(QC::i32 x, QC::i32 y, QK::Event::MouseButton button) override;
+            bool onMouseUp(QC::i32 x, QC::i32 y, QK::Event::MouseButton button) override;
+            bool onKeyDown(QC::u8 scancode, QC::u8 keycode, char character, QK::Event::Modifiers mods) override;
+            void onFocus() override;
+            void onBlur() override;
 
         private:
             void insertChar(char c);
             void deleteChar(bool forward);
             void moveCursor(QC::isize delta, bool extend);
-
-            Window *m_parent;
-            Rect m_bounds;
 
             char *m_text;
             QC::usize m_textLength;
@@ -97,13 +90,12 @@ namespace QW
             QC::usize m_selEnd;
             QC::usize m_maxLength;
 
-            bool m_enabled;
             bool m_readOnly;
             bool m_password;
-            bool m_focused;
 
-            Color m_bgColor;
             Color m_textColor;
+            Color m_borderColor;
+            Color m_selectionColor;
 
             TextChangeHandler m_changeHandler;
             void *m_changeUserData;

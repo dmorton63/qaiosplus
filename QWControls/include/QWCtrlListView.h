@@ -5,6 +5,7 @@
 
 #include "QCTypes.h"
 #include "QCVector.h"
+#include "QWCtrlBase.h"
 #include "QWWindowManager.h"
 #include "QWWindow.h"
 #include "QKEventTypes.h"
@@ -44,19 +45,14 @@ namespace QW
         using SelectionChangeHandler = void (*)(ListView *listView, void *userData);
         using ItemDoubleClickHandler = void (*)(ListView *listView, QC::usize index, void *userData);
 
-        class ListView
+        class ListView : public ControlBase
         {
         public:
-            ListView(Window *parent, Rect bounds);
-            ~ListView();
+            ListView();
+            ListView(Window *window, Rect bounds);
+            virtual ~ListView();
 
-            // Properties
-            Rect bounds() const { return m_bounds; }
-            void setBounds(const Rect &bounds);
-
-            bool isEnabled() const { return m_enabled; }
-            void setEnabled(bool enabled) { m_enabled = enabled; }
-
+            // Selection mode
             SelectionMode selectionMode() const { return m_selectionMode; }
             void setSelectionMode(SelectionMode mode) { m_selectionMode = mode; }
 
@@ -89,14 +85,14 @@ namespace QW
             void ensureVisible(QC::usize index);
 
             // Appearance
-            Color backgroundColor() const { return m_bgColor; }
-            void setBackgroundColor(Color color) { m_bgColor = color; }
-
             Color textColor() const { return m_textColor; }
             void setTextColor(Color color) { m_textColor = color; }
 
             Color selectionColor() const { return m_selColor; }
             void setSelectionColor(Color color) { m_selColor = color; }
+
+            Color headerColor() const { return m_headerColor; }
+            void setHeaderColor(Color color) { m_headerColor = color; }
 
             QC::u32 itemHeight() const { return m_itemHeight; }
             void setItemHeight(QC::u32 height) { m_itemHeight = height; }
@@ -108,23 +104,19 @@ namespace QW
             void setSelectionChangeHandler(SelectionChangeHandler handler, void *userData);
             void setItemDoubleClickHandler(ItemDoubleClickHandler handler, void *userData);
 
-            // Rendering
-            void paint();
+            // Rendering (override from ControlBase)
+            void paint() override;
 
-            // Input handling (using QEvent types)
-            void handleMouseDown(QC::i32 x, QC::i32 y, QK::Event::MouseButton button);
-            void handleMouseUp(QC::i32 x, QC::i32 y, QK::Event::MouseButton button);
-            void handleMouseMove(QC::i32 x, QC::i32 y);
-            void handleMouseWheel(QC::i32 delta);
-            void handleKeyDown(QC::u8 scancode, QK::Event::Modifiers mods);
+            // Event handlers (override from ControlBase)
+            bool onMouseMove(QC::i32 x, QC::i32 y, QC::i32 deltaX, QC::i32 deltaY) override;
+            bool onMouseDown(QC::i32 x, QC::i32 y, QK::Event::MouseButton button) override;
+            bool onMouseUp(QC::i32 x, QC::i32 y, QK::Event::MouseButton button) override;
+            bool onMouseScroll(QC::i32 delta) override;
+            bool onKeyDown(QC::u8 scancode, QC::u8 keycode, char character, QK::Event::Modifiers mods) override;
 
         private:
             QC::isize itemAtPoint(QC::i32 x, QC::i32 y);
             QC::usize visibleItemCount() const;
-
-            Window *m_parent;
-            Rect m_bounds;
-            bool m_enabled;
 
             QC::Vector<ListViewColumn> m_columns;
             QC::Vector<ListViewItem> m_items;
@@ -134,9 +126,9 @@ namespace QW
             QC::u32 m_itemHeight;
             bool m_showHeader;
 
-            Color m_bgColor;
             Color m_textColor;
             Color m_selColor;
+            Color m_headerColor;
 
             SelectionChangeHandler m_selChangeHandler;
             void *m_selChangeUserData;

@@ -146,10 +146,18 @@ echo ""
 # Run QEMU if requested
 if [ "$RUN_QEMU" = true ]; then
     echo -e "${YELLOW}Launching QEMU...${NC}"
-    echo -e "${CYAN}(Press Ctrl+Alt+G to release mouse, Ctrl+C to quit)${NC}"
+    echo -e "${CYAN}(Click inside QEMU window for keyboard focus)${NC}"
+    echo -e "${CYAN}(Press Ctrl+Q in OS to shutdown)${NC}"
+    echo -e "${CYAN}(Serial log: ${BUILD_DIR}/serial.log)${NC}"
     echo ""
+    # Use xHCI controller with USB tablet for absolute mouse positioning
     qemu-system-x86_64 \
         -cdrom "${ISO_FILE}" \
         -m 256M \
-        -serial stdio
+        -device qemu-xhci,id=xhci \
+        -device usb-tablet,bus=xhci.0 \
+        -serial file:"${BUILD_DIR}/serial.log"
+    echo ""
+    echo -e "${CYAN}=== Serial output (last 30 lines) ===${NC}"
+    tail -30 "${BUILD_DIR}/serial.log"
 fi

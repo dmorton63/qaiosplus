@@ -41,10 +41,10 @@ namespace QKDrv
         void probeUSB();
 
         QC::Vector<DriverBase *> m_controllers;
-        MouseDriver *m_mouseDriver;
-        KeyboardDriver *m_keyboardDriver;
-        QC::u32 m_screenWidth;
-        QC::u32 m_screenHeight;
+        MouseDriver *m_mouseDriver = nullptr;
+        KeyboardDriver *m_keyboardDriver = nullptr;
+        QC::u32 m_screenWidth = 0;
+        QC::u32 m_screenHeight = 0;
     };
 
 } // namespace QKDrv

@@ -104,7 +104,7 @@ QKDrv::DriverBase           # Base interface
 QKDrv::PS2::Mouse           # PS/2 mouse implementation
 QKDrv::PS2::Keyboard        # PS/2 keyboard implementation
 QKDrv::UHCI::Controller     # USB 1.1 controller
-QKDrv::XHCI::Controller     # USB 3.0 controller
+QKDrv::XHCI::XHCIController # USB 3.0 controller
 ```
 
 ### Driver Manager

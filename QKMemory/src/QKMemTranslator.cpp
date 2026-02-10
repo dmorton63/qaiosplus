@@ -6,6 +6,9 @@
 #include "QKMemVMM.h"
 #include "QCLogger.h"
 
+// External functions for physical/virtual conversion
+extern "C" QC::VirtAddr physToVirt(QC::PhysAddr phys);
+
 namespace QK::Memory
 {
 
@@ -61,33 +64,36 @@ namespace QK::Memory
 
     QC::VirtAddr Translator::mapMMIO(QC::PhysAddr phys, QC::usize size)
     {
-        if (m_useIdentityMapping)
+        // MMIO requires explicit page table mapping with no-cache flags
+        // Use the dedicated MMIO virtual address range starting at m_mmioBase
+
+        // Round size up to page boundary
+        size = (size + 0xFFF) & ~0xFFFULL;
+
+        QC::VirtAddr virt = m_mmioBase;
+        m_mmioBase += size;
+
+        QC_LOG_INFO("QKMemTrans", "Mapping MMIO: phys=0x%lx -> virt=0x%lx, size=0x%lx",
+                    phys, virt, size);
+
+        // Map with Present | Writable | NoCache flags for MMIO
+        PageFlags flags = PageFlags::Present | PageFlags::Writable |
+                          PageFlags::NoCache | PageFlags::WriteThrough;
+
+        QC::Status status = VMM::instance().mapRange(virt, phys, size, flags);
+        if (status != QC::Status::Success)
         {
-            // Limine provides identity mapping - just return physical address
-            QC_LOG_DEBUG("QKMemTrans", "MMIO identity map: phys=0x%lx, size=%lu", phys, size);
-            return static_cast<QC::VirtAddr>(phys);
+            QC_LOG_ERROR("QKMemTrans", "Failed to map MMIO, status=%d", static_cast<int>(status));
+            return 0;
         }
 
-        // Use VMM for proper MMIO mapping
-        QC::VirtAddr virt = m_mmioBase;
-        m_mmioBase += (size + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
-
-        VMM::instance().mapRange(virt, phys, size,
-                                 PageFlags::Present | PageFlags::Writable | PageFlags::NoCache);
-
-        QC_LOG_DEBUG("QKMemTrans", "Mapped MMIO: phys=0x%lx -> virt=0x%lx, size=%lu",
-                     phys, virt, size);
-
+        QC_LOG_INFO("QKMemTrans", "MMIO mapped successfully at 0x%lx", virt);
         return virt;
     }
 
     void Translator::unmapMMIO(QC::VirtAddr virt, QC::usize size)
     {
-        if (m_useIdentityMapping)
-        {
-            // Nothing to do for identity-mapped MMIO
-            return;
-        }
+        size = (size + 0xFFF) & ~0xFFFULL;
         VMM::instance().unmapRange(virt, size);
     }
 

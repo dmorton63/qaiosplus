@@ -57,6 +57,28 @@ limine_memmap_request:
     dq 0                     ; Revision
     dq 0                     ; Response pointer
 
+; HHDM (Higher Half Direct Map) request
+align 8
+global limine_hhdm_request
+limine_hhdm_request:
+    dq LIMINE_COMMON_MAGIC_0
+    dq LIMINE_COMMON_MAGIC_1
+    dq 0x48dcf1cb8ad2b852   ; HHDM request ID 0
+    dq 0x63984e959a98244b   ; HHDM request ID 1
+    dq 0                     ; Revision
+    dq 0                     ; Response pointer
+
+; Kernel Address request (physical/virtual base)
+align 8
+global limine_kernel_address_request
+limine_kernel_address_request:
+    dq LIMINE_COMMON_MAGIC_0
+    dq LIMINE_COMMON_MAGIC_1
+    dq 0x71ba76863cc55f63   ; Kernel address request ID 0
+    dq 0xb2644a48c516a487   ; Kernel address request ID 1
+    dq 0                     ; Revision
+    dq 0                     ; Response pointer
+
 ; ============================================================================
 ; BSS section
 ; ============================================================================

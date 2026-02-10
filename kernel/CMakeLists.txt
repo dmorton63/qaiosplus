@@ -18,6 +18,7 @@ target_link_libraries(qaios_kernel PRIVATE
     QFileSystem
     QWindowing
     QWControls
+    QDesktop
     QKDrivers
 )
 

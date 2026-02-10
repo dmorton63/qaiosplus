@@ -166,9 +166,9 @@ namespace QKDrv
                 deltaZ = static_cast<QC::i8>(m_packetBuffer[3]);
             }
 
-            // Update position (X inverted for VM mouse capture compatibility)
+            // Update position
             m_x -= deltaX;
-            m_y += deltaY; // Y axis corrected
+            m_y += deltaY;
 
             // Clamp to bounds
             if (m_x < m_minX)

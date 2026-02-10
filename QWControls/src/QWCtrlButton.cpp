@@ -4,23 +4,36 @@
 #include "QWCtrlButton.h"
 #include "QCMemUtil.h"
 #include "QCString.h"
+#include "QWWindow.h"
 
 namespace QW
 {
     namespace Controls
     {
 
-        Button::Button(Window *parent, const char *text, Rect bounds)
-            : m_parent(parent),
-              m_bounds(bounds),
-              m_enabled(true),
-              m_state(ButtonState::Normal),
-              m_bgColor(Color(200, 200, 200, 255)),
+        Button::Button()
+            : ControlBase(),
               m_textColor(Color(0, 0, 0, 255)),
               m_borderColor(Color(100, 100, 100, 255)),
+              m_hoverColor(Color(220, 220, 220, 255)),
+              m_pressedColor(Color(180, 180, 180, 255)),
               m_clickHandler(nullptr),
               m_clickUserData(nullptr)
         {
+            m_bgColor = Color(200, 200, 200, 255);
+            m_text[0] = '\0';
+        }
+
+        Button::Button(Window *window, const char *text, Rect bounds)
+            : ControlBase(window, bounds),
+              m_textColor(Color(0, 0, 0, 255)),
+              m_borderColor(Color(100, 100, 100, 255)),
+              m_hoverColor(Color(220, 220, 220, 255)),
+              m_pressedColor(Color(180, 180, 180, 255)),
+              m_clickHandler(nullptr),
+              m_clickUserData(nullptr)
+        {
+            m_bgColor = Color(200, 200, 200, 255);
             setText(text);
         }
 
@@ -41,12 +54,6 @@ namespace QW
             }
         }
 
-        void Button::setEnabled(bool enabled)
-        {
-            m_enabled = enabled;
-            m_state = enabled ? ButtonState::Normal : ButtonState::Disabled;
-        }
-
         void Button::setClickHandler(ButtonClickHandler handler, void *userData)
         {
             m_clickHandler = handler;
@@ -55,81 +62,97 @@ namespace QW
 
         void Button::paint()
         {
-            if (!m_parent)
+            if (!m_window || !m_visible)
                 return;
+
+            Rect abs = absoluteBounds();
 
             // Draw background based on state
             Color bgColor = m_bgColor;
             switch (m_state)
             {
-            case ButtonState::Hovered:
-                bgColor = Color(220, 220, 220, 255);
+            case ControlState::Hovered:
+                bgColor = m_hoverColor;
                 break;
-            case ButtonState::Pressed:
-                bgColor = Color(180, 180, 180, 255);
+            case ControlState::Pressed:
+                bgColor = m_pressedColor;
                 break;
-            case ButtonState::Disabled:
+            case ControlState::Disabled:
                 bgColor = Color(160, 160, 160, 255);
                 break;
             default:
                 break;
             }
 
-            // TODO: Use window drawing primitives
-            // m_parent->fillRect(m_bounds, bgColor);
-            // m_parent->drawRect(m_bounds, m_borderColor);
-            // m_parent->drawText(m_text, m_bounds, m_textColor, TextAlign::Center);
+            m_window->fillRect(abs, bgColor);
+            m_window->drawRect(abs, m_borderColor);
+
+            // Draw centered text
+            QC::i32 textX = abs.x + static_cast<QC::i32>(abs.width / 2);
+            QC::i32 textY = abs.y + static_cast<QC::i32>(abs.height / 2);
+            m_window->drawText(textX, textY, m_text, m_textColor);
         }
 
-        void Button::handleMouseMove(QC::i32 x, QC::i32 y)
+        bool Button::onMouseMove(QC::i32 x, QC::i32 y, QC::i32 deltaX, QC::i32 deltaY)
         {
             if (!m_enabled)
-                return;
+                return false;
 
-            bool inside = x >= m_bounds.x && x < m_bounds.x + static_cast<QC::i32>(m_bounds.width) &&
-                          y >= m_bounds.y && y < m_bounds.y + static_cast<QC::i32>(m_bounds.height);
+            bool inside = hitTest(x, y);
 
-            if (inside && m_state == ButtonState::Normal)
+            if (inside && m_state == ControlState::Normal)
             {
-                m_state = ButtonState::Hovered;
+                setState(ControlState::Hovered);
+                invalidate();
+                return true;
             }
-            else if (!inside && m_state == ButtonState::Hovered)
+            else if (!inside && m_state == ControlState::Hovered)
             {
-                m_state = ButtonState::Normal;
+                setState(ControlState::Normal);
+                invalidate();
+                return true;
             }
+
+            return inside;
         }
 
-        void Button::handleMouseDown(QC::i32 x, QC::i32 y, QK::Event::MouseButton button)
+        bool Button::onMouseDown(QC::i32 x, QC::i32 y, QK::Event::MouseButton button)
         {
             if (!m_enabled || button != QK::Event::MouseButton::Left)
-                return;
+                return false;
 
-            bool inside = x >= m_bounds.x && x < m_bounds.x + static_cast<QC::i32>(m_bounds.width) &&
-                          y >= m_bounds.y && y < m_bounds.y + static_cast<QC::i32>(m_bounds.height);
+            bool inside = hitTest(x, y);
 
             if (inside)
             {
-                m_state = ButtonState::Pressed;
+                setState(ControlState::Pressed);
+                invalidate();
+                return true;
             }
+
+            return false;
         }
 
-        void Button::handleMouseUp(QC::i32 x, QC::i32 y, QK::Event::MouseButton button)
+        bool Button::onMouseUp(QC::i32 x, QC::i32 y, QK::Event::MouseButton button)
         {
             if (!m_enabled || button != QK::Event::MouseButton::Left)
-                return;
+                return false;
 
-            bool inside = x >= m_bounds.x && x < m_bounds.x + static_cast<QC::i32>(m_bounds.width) &&
-                          y >= m_bounds.y && y < m_bounds.y + static_cast<QC::i32>(m_bounds.height);
+            bool inside = hitTest(x, y);
 
-            if (m_state == ButtonState::Pressed)
+            if (m_state == ControlState::Pressed)
             {
-                m_state = inside ? ButtonState::Hovered : ButtonState::Normal;
+                setState(inside ? ControlState::Hovered : ControlState::Normal);
+                invalidate();
 
                 if (inside && m_clickHandler)
                 {
                     m_clickHandler(this, m_clickUserData);
                 }
+                return true;
             }
+
+            return false;
         }
 
     } // namespace Controls

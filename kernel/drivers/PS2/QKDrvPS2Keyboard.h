@@ -137,6 +137,7 @@ namespace QKDrv
             // DriverBase interface
             QC::Status initialize() override;
             void shutdown() override;
+            void poll() override; // Poll for keyboard input (fallback if IRQ not working)
             const char *name() const override { return "PS2Keyboard"; }
             ControllerType controllerType() const override { return ControllerType::PS2; }
 

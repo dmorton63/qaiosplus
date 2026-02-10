@@ -3,6 +3,7 @@
 
 #include "QCLogger.h"
 #include "QCBuiltins.h"
+#include <cstdarg>
 
 namespace QC
 {
@@ -54,7 +55,58 @@ namespace QC
         }
     }
 
-    void Logger::log(LogLevel level, const char *module, const char *format, ...)
+    // Helper: output an unsigned integer in a given base
+    void Logger::outputNumber(u64 value, int base, int minWidth, char padChar, bool uppercase)
+    {
+        static const char digitsLower[] = "0123456789abcdef";
+        static const char digitsUpper[] = "0123456789ABCDEF";
+        const char *digits = uppercase ? digitsUpper : digitsLower;
+
+        char buffer[24]; // Enough for 64-bit number in binary
+        int pos = 0;
+
+        // Handle zero
+        if (value == 0)
+        {
+            buffer[pos++] = '0';
+        }
+        else
+        {
+            while (value > 0)
+            {
+                buffer[pos++] = digits[value % base];
+                value /= base;
+            }
+        }
+
+        // Pad if needed
+        while (pos < minWidth)
+        {
+            buffer[pos++] = padChar;
+        }
+
+        // Output in reverse order
+        while (pos > 0)
+        {
+            outputChar(buffer[--pos]);
+        }
+    }
+
+    // Helper: output a signed integer
+    void Logger::outputSigned(i64 value, int minWidth, char padChar)
+    {
+        if (value < 0)
+        {
+            outputChar('-');
+            outputNumber(static_cast<u64>(-value), 10, minWidth > 0 ? minWidth - 1 : 0, padChar, false);
+        }
+        else
+        {
+            outputNumber(static_cast<u64>(value), 10, minWidth, padChar, false);
+        }
+    }
+
+    void Logger::vlog(LogLevel level, const char *module, const char *format, va_list args)
     {
         if (level < m_level)
             return;
@@ -90,38 +142,181 @@ namespace QC
         outputString(" ");
         outputString(module);
         outputString(": ");
-        outputString(format); // TODO: Implement printf-style formatting
+
+        // Parse format string and handle specifiers
+        while (*format)
+        {
+            if (*format != '%')
+            {
+                outputChar(*format++);
+                continue;
+            }
+
+            format++; // Skip '%'
+
+            if (*format == '%')
+            {
+                outputChar('%');
+                format++;
+                continue;
+            }
+
+            // Parse width and flags
+            char padChar = ' ';
+            int minWidth = 0;
+            bool longLong = false;
+            bool isLong = false;
+
+            // Check for '0' padding
+            if (*format == '0')
+            {
+                padChar = '0';
+                format++;
+            }
+
+            // Parse width
+            while (*format >= '0' && *format <= '9')
+            {
+                minWidth = minWidth * 10 + (*format - '0');
+                format++;
+            }
+
+            // Check for length modifiers
+            if (*format == 'l')
+            {
+                isLong = true;
+                format++;
+                if (*format == 'l')
+                {
+                    longLong = true;
+                    format++;
+                }
+            }
+            else if (*format == 'z')
+            {
+                // size_t - treat as long on 64-bit
+                isLong = true;
+                format++;
+            }
+
+            // Handle format specifier
+            switch (*format)
+            {
+            case 'd':
+            case 'i':
+                if (longLong || isLong)
+                    outputSigned(va_arg(args, i64), minWidth, padChar);
+                else
+                    outputSigned(va_arg(args, int), minWidth, padChar);
+                break;
+
+            case 'u':
+                if (longLong || isLong)
+                    outputNumber(va_arg(args, u64), 10, minWidth, padChar, false);
+                else
+                    outputNumber(va_arg(args, unsigned int), 10, minWidth, padChar, false);
+                break;
+
+            case 'x':
+                if (longLong || isLong)
+                    outputNumber(va_arg(args, u64), 16, minWidth, padChar, false);
+                else
+                    outputNumber(va_arg(args, unsigned int), 16, minWidth, padChar, false);
+                break;
+
+            case 'X':
+                if (longLong || isLong)
+                    outputNumber(va_arg(args, u64), 16, minWidth, padChar, true);
+                else
+                    outputNumber(va_arg(args, unsigned int), 16, minWidth, padChar, true);
+                break;
+
+            case 'p':
+                outputString("0x");
+                outputNumber(reinterpret_cast<u64>(va_arg(args, void *)), 16, 16, '0', false);
+                break;
+
+            case 's':
+            {
+                const char *str = va_arg(args, const char *);
+                if (str)
+                    outputString(str);
+                else
+                    outputString("(null)");
+                break;
+            }
+
+            case 'c':
+                outputChar(static_cast<char>(va_arg(args, int)));
+                break;
+
+            default:
+                // Unknown specifier - output as-is
+                outputChar('%');
+                outputChar(*format);
+                break;
+            }
+
+            format++;
+        }
+
         outputString("\n");
+    }
+
+    void Logger::log(LogLevel level, const char *module, const char *format, ...)
+    {
+        va_list args;
+        va_start(args, format);
+        vlog(level, module, format, args);
+        va_end(args);
     }
 
     void Logger::trace(const char *module, const char *format, ...)
     {
-        log(LogLevel::Trace, module, format);
+        va_list args;
+        va_start(args, format);
+        vlog(LogLevel::Trace, module, format, args);
+        va_end(args);
     }
 
     void Logger::debug(const char *module, const char *format, ...)
     {
-        log(LogLevel::Debug, module, format);
+        va_list args;
+        va_start(args, format);
+        vlog(LogLevel::Debug, module, format, args);
+        va_end(args);
     }
 
     void Logger::info(const char *module, const char *format, ...)
     {
-        log(LogLevel::Info, module, format);
+        va_list args;
+        va_start(args, format);
+        vlog(LogLevel::Info, module, format, args);
+        va_end(args);
     }
 
     void Logger::warning(const char *module, const char *format, ...)
     {
-        log(LogLevel::Warning, module, format);
+        va_list args;
+        va_start(args, format);
+        vlog(LogLevel::Warning, module, format, args);
+        va_end(args);
     }
 
     void Logger::error(const char *module, const char *format, ...)
     {
-        log(LogLevel::Error, module, format);
+        va_list args;
+        va_start(args, format);
+        vlog(LogLevel::Error, module, format, args);
+        va_end(args);
     }
 
     void Logger::fatal(const char *module, const char *format, ...)
     {
-        log(LogLevel::Fatal, module, format);
+        va_list args;
+        va_start(args, format);
+        vlog(LogLevel::Fatal, module, format, args);
+        va_end(args);
     }
 
 } // namespace QC

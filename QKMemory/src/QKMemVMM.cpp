@@ -8,13 +8,23 @@
 #include "QCLogger.h"
 #include "QCString.h"
 
+// Early page allocator for when PMM isn't ready yet
+extern "C" QC::PhysAddr earlyAllocatePage();
+
 namespace QK::Memory
 {
 
+    // Helper to allocate a page table page - use early allocator since PMM isn't fully initialized
+    static QC::PhysAddr allocatePageTablePage()
+    {
+        // Always use the early allocator for simplicity since PMM may not be ready
+        return earlyAllocatePage();
+    }
+
     VMM &VMM::instance()
     {
-        static VMM instance;
-        return instance;
+        static VMM s_instance;
+        return s_instance;
     }
 
     VMM::VMM()
@@ -87,22 +97,28 @@ namespace QK::Memory
     QC::Status VMM::map(QC::VirtAddr virt, QC::PhysAddr phys, PageFlags flags)
     {
         QC::PhysAddr pml4Addr = currentAddressSpace();
+        QC_LOG_DEBUG("QKMemVMM", "Mapping virt=0x%lx -> phys=0x%lx, CR3=0x%lx", virt, phys, pml4Addr);
+
         QC::u64 *pml4 = phys_to_virt<QC::u64>(pml4Addr);
+        QC_LOG_DEBUG("QKMemVMM", "PML4 virtual addr=0x%lx", reinterpret_cast<QC::VirtAddr>(pml4));
 
         // Get or create PDPT
         QC::u64 *pdpt = getOrCreateTable(pml4, pml4Index(virt));
         if (!pdpt)
             return QC::Status::OutOfMemory;
+        QC_LOG_DEBUG("QKMemVMM", "Got PDPT");
 
         // Get or create PD
         QC::u64 *pd = getOrCreateTable(pdpt, pdptIndex(virt));
         if (!pd)
             return QC::Status::OutOfMemory;
+        QC_LOG_DEBUG("QKMemVMM", "Got PD");
 
         // Get or create PT
         QC::u64 *pt = getOrCreateTable(pd, pdIndex(virt));
         if (!pt)
             return QC::Status::OutOfMemory;
+        QC_LOG_DEBUG("QKMemVMM", "Got PT");
 
         // Set the page table entry
         QC::u64 entry = phys | static_cast<QC::u64>(flags);
@@ -254,19 +270,40 @@ namespace QK::Memory
 
     QC::u64 *VMM::getOrCreateTable(QC::u64 *parent, QC::usize index)
     {
-        if (parent[index] & 1)
+        QC_LOG_DEBUG("QKMemVMM", "getOrCreateTable: parent=0x%lx index=%lu",
+                     reinterpret_cast<QC::VirtAddr>(parent), index);
+
+        QC::u64 entry = parent[index];
+        QC_LOG_DEBUG("QKMemVMM", "Entry value: 0x%lx", entry);
+
+        if (entry & 1)
         {
-            return phys_to_virt<QC::u64>(parent[index] & ~0xFFFULL);
+            QC_LOG_DEBUG("QKMemVMM", "Found existing table");
+            return phys_to_virt<QC::u64>(entry & ~0xFFFULL);
         }
 
-        QC::PhysAddr newTable = PMM::instance().allocatePage();
+        QC::PhysAddr newTable = allocatePageTablePage();
         if (newTable == 0)
+        {
+            QC_LOG_ERROR("QKMemVMM", "Failed to allocate page table");
             return nullptr;
+        }
 
-        QC::String::memset(phys_to_virt<void>(newTable), 0, PAGE_SIZE);
+        QC_LOG_DEBUG("QKMemVMM", "Allocated page table at phys=0x%lx", newTable);
+
+        // Zero out the new page table using HHDM offset directly
+        QC::u64 hhdm = getHHDMOffset();
+        QC::u8 *virtAddr = reinterpret_cast<QC::u8 *>(newTable + hhdm);
+        QC_LOG_DEBUG("QKMemVMM", "Virtual addr for zeroing: 0x%lx", reinterpret_cast<QC::VirtAddr>(virtAddr));
+
+        for (QC::usize i = 0; i < PAGE_SIZE; ++i)
+        {
+            virtAddr[i] = 0;
+        }
+
         parent[index] = newTable | 0x03; // Present + Writable
 
-        return phys_to_virt<QC::u64>(newTable);
+        return reinterpret_cast<QC::u64 *>(newTable + hhdm);
     }
 
     void VMM::invalidatePage(QC::VirtAddr addr)

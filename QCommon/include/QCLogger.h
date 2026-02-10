@@ -4,6 +4,7 @@
 // Namespace: QC
 
 #include "QCTypes.h"
+#include <cstdarg>
 
 namespace QC
 {
@@ -43,6 +44,9 @@ namespace QC
 
         void outputChar(char c);
         void outputString(const char *str);
+        void outputNumber(u64 value, int base, int minWidth, char padChar, bool uppercase);
+        void outputSigned(i64 value, int minWidth, char padChar);
+        void vlog(LogLevel level, const char *module, const char *format, va_list args);
 
         LogLevel m_level;
     };

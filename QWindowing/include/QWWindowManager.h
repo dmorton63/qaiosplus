@@ -5,6 +5,8 @@
 
 #include "QCTypes.h"
 #include "QCVector.h"
+#include "QCGeometry.h"
+#include "QCColor.h"
 #include "QKEventTypes.h"
 #include "QKEventListener.h"
 
@@ -24,79 +26,12 @@ namespace QW
     class Framebuffer;
     class Compositor;
 
-    // Point
-    struct Point
-    {
-        QC::i32 x;
-        QC::i32 y;
-    };
-
-    // Size
-    struct Size
-    {
-        QC::u32 width;
-        QC::u32 height;
-    };
-
-    // Rectangle
-    struct Rect
-    {
-        QC::i32 x;
-        QC::i32 y;
-        QC::u32 width;
-        QC::u32 height;
-
-        bool contains(Point p) const
-        {
-            return p.x >= x && p.x < x + static_cast<QC::i32>(width) &&
-                   p.y >= y && p.y < y + static_cast<QC::i32>(height);
-        }
-
-        bool intersects(const Rect &other) const;
-        Rect intersection(const Rect &other) const;
-    };
-
-    // Color (ARGB)
-    struct Color
-    {
-        union
-        {
-            QC::u32 value;
-            struct
-            {
-                QC::u8 b, g, r, a;
-            };
-        };
-
-        Color() : value(0) {}
-        Color(QC::u8 red, QC::u8 green, QC::u8 blue, QC::u8 alpha = 255)
-        {
-            r = red;
-            g = green;
-            b = blue;
-            a = alpha;
-        }
-
-        static Color fromRGB(QC::u8 r, QC::u8 g, QC::u8 b)
-        {
-            Color c;
-            c.r = r;
-            c.g = g;
-            c.b = b;
-            c.a = 255;
-            return c;
-        }
-
-        static Color fromARGB(QC::u8 a, QC::u8 r, QC::u8 g, QC::u8 b)
-        {
-            Color c;
-            c.a = a;
-            c.r = r;
-            c.g = g;
-            c.b = b;
-            return c;
-        }
-    };
+    // Type aliases - use QC types in QW namespace for convenience
+    using Point = QC::Point;
+    using Size = QC::Size;
+    using Rect = QC::Rect;
+    using Color = QC::Color;
+    using Margins = QC::Margins;
 
     class WindowManager : public QK::Event::IEventReceiver
     {
