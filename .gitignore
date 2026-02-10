@@ -1,0 +1,33 @@
+# Build directories
+build/
+out/
+bin/
+obj/
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+
+# IDE
+.idea/
+*.swp
+*.swo
+*~
+
+# Debug
+*.dSYM/
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Kernel output
+*.iso
+*.img
+*.bin
+*.elf
+*.o
+*.a
