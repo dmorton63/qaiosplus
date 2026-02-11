@@ -4,19 +4,20 @@
 // Namespace: QW::Controls
 
 #include "QCTypes.h"
-#include "QWCtrlBase.h"
-#include "QWWindowManager.h"
-#include "QWWindow.h"
+#include "QWControls/Base/ControlBase.h"
 #include "QKEventTypes.h"
 
 namespace QW
 {
+    class Window;
+
     namespace Controls
     {
 
         // Text change callback
         class TextBox;
         using TextChangeHandler = void (*)(TextBox *textBox, void *userData);
+        using TextSubmitHandler = void (*)(TextBox *textBox, void *userData);
 
         class TextBox : public ControlBase
         {
@@ -63,6 +64,7 @@ namespace QW
 
             // Events
             void setTextChangeHandler(TextChangeHandler handler, void *userData);
+            void setTextSubmitHandler(TextSubmitHandler handler, void *userData);
 
             // Rendering (override from ControlBase)
             void paint() override;
@@ -99,6 +101,9 @@ namespace QW
 
             TextChangeHandler m_changeHandler;
             void *m_changeUserData;
+
+            TextSubmitHandler m_submitHandler;
+            void *m_submitUserData;
 
             // Scroll position for long text
             QC::usize m_scrollOffset;

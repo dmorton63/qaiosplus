@@ -130,8 +130,14 @@ namespace QFS
     {
         if (!file)
             return QC::Status::InvalidParam;
-        // TODO: Get filesystem from file and close
-        return QC::Status::Success;
+        FileSystem *fs = file->fileSystem();
+        QC::Status status = QC::Status::Success;
+        if (fs)
+        {
+            status = fs->close(file);
+        }
+        delete file;
+        return status;
     }
 
     Directory *VFS::openDir(const char *path)
@@ -152,7 +158,14 @@ namespace QFS
     {
         if (!dir)
             return QC::Status::InvalidParam;
-        return QC::Status::Success;
+        FileSystem *fs = dir->fileSystem();
+        QC::Status status = QC::Status::Success;
+        if (fs)
+        {
+            status = fs->closeDir(dir);
+        }
+        delete dir;
+        return status;
     }
 
     QC::Status VFS::createDir(const char *path)

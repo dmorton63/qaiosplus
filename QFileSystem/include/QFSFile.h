@@ -36,6 +36,7 @@ namespace QFS
         bool isEOF() const;
         QC::u64 size() const { return m_size; }
         OpenMode mode() const { return m_mode; }
+        FileSystem *fileSystem() const { return m_fs; }
 
         // Misc
         QC::Status flush();
@@ -45,6 +46,10 @@ namespace QFS
         void setHandle(void *handle) { m_fsHandle = handle; }
         void *handle() const { return m_fsHandle; }
         void setFileSystem(FileSystem *fs) { m_fs = fs; }
+        void setOpen(bool open) { m_open = open; }
+        void setMode(OpenMode mode) { m_mode = mode; }
+        void setSize(QC::u64 size) { m_size = size; }
+        void setPosition(QC::u64 position) { m_position = position; }
 
     private:
         bool m_open;

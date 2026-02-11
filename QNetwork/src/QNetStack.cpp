@@ -41,6 +41,12 @@ namespace QNet
 
     void Stack::initialize()
     {
+        // Idempotent init (drivers may call this during probing).
+        if (m_ethernet || m_ip || m_tcp || m_udp)
+        {
+            return;
+        }
+
         // Create protocol layers
         m_ethernet = new Ethernet();
         m_ip = new IP();
@@ -69,14 +75,8 @@ namespace QNet
         // Exit point for outgoing packets to NIC driver
         // This should be called by Ethernet layer after framing
 
-        // In a real implementation, this would call the NIC driver
-        // For now, this is a hook that can be connected to a driver
-
-        // Placeholder: would call something like:
-        // NICDriver::instance().transmit(data, length);
-
-        (void)data;
-        (void)length;
+        // Forward to NIC callback if registered.
+        transmitToNIC(data, length);
     }
 
     // NIC driver callback registration

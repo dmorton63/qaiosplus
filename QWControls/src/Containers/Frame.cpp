@@ -1,14 +1,22 @@
-// QWControls Frame - Border and frame rendering implementation
+// Frame rendering implementation
 // Namespace: QW::Controls
 
-#include "QWCtrlFrame.h"
+#include "QWControls/Containers/Frame.h"
 
 namespace QW
 {
     namespace Controls
     {
-
-        // ==================== FrameColors Presets ====================
+        FrameColors::FrameColors()
+            : background(Color(240, 240, 240, 255)),
+              backgroundEnd(Color(220, 220, 220, 255)),
+              borderLight(Color(255, 255, 255, 255)),
+              borderDark(Color(100, 100, 100, 255)),
+              borderMid(Color(160, 160, 160, 255)),
+              shadow(Color(0, 0, 0, 80)),
+              glow(Color(0, 120, 215, 128))
+        {
+        }
 
         FrameColors FrameColors::defaultColors()
         {
@@ -62,7 +70,36 @@ namespace QW
             return c;
         }
 
-        // ==================== Frame Constructor ====================
+        FrameMetrics::FrameMetrics()
+            : borderWidth(1),
+              shadowOffset(2),
+              shadowSize(4),
+              cornerRadius(0),
+              paddingLeft(0),
+              paddingTop(0),
+              paddingRight(0),
+              paddingBottom(0)
+        {
+        }
+
+        void FrameMetrics::setPadding(QC::u32 all)
+        {
+            paddingLeft = paddingTop = paddingRight = paddingBottom = all;
+        }
+
+        void FrameMetrics::setPadding(QC::u32 horizontal, QC::u32 vertical)
+        {
+            paddingLeft = paddingRight = horizontal;
+            paddingTop = paddingBottom = vertical;
+        }
+
+        void FrameMetrics::setPadding(QC::u32 left, QC::u32 top, QC::u32 right, QC::u32 bottom)
+        {
+            paddingLeft = left;
+            paddingTop = top;
+            paddingRight = right;
+            paddingBottom = bottom;
+        }
 
         Frame::Frame()
             : m_style(FrameStyle::BorderFlat | FrameStyle::FillSolid),
@@ -88,22 +125,28 @@ namespace QW
         {
         }
 
-        // ==================== Style Methods ====================
-
         void Frame::setBorderStyle(QC::u32 borderFlag)
         {
-            // Clear existing border flags and set new one
             m_style = (m_style & ~FrameStyle::BorderMask) | (borderFlag & FrameStyle::BorderMask);
         }
 
-        // ==================== Geometry ====================
+        void Frame::setPosition(QC::i32 x, QC::i32 y)
+        {
+            m_bounds.x = x;
+            m_bounds.y = y;
+        }
+
+        void Frame::setSize(QC::u32 width, QC::u32 height)
+        {
+            m_bounds.width = width;
+            m_bounds.height = height;
+        }
 
         Rect Frame::contentRect() const
         {
             Rect content;
             QC::u32 totalBorder = m_metrics.borderWidth;
 
-            // Account for double borders
             if (hasStyle(FrameStyle::BorderDouble) || hasStyle(FrameStyle::BorderEtched) ||
                 hasStyle(FrameStyle::BorderGroove))
             {
@@ -118,36 +161,27 @@ namespace QW
             return content;
         }
 
-        // ==================== Main Paint Method ====================
-
         void Frame::paint(QG::IPainter *painter) const
         {
             if (!painter)
+            {
                 return;
+            }
 
-            // Paint order: shadow -> background -> border
-            // This ensures proper layering
-
-            // 1. Drop shadow (painted outside/behind the frame)
             if (hasStyle(FrameStyle::DropShadow) || hasStyle(FrameStyle::DropShadowSoft))
             {
                 paintShadow(painter);
             }
 
-            // 2. Background fill
             paintBackground(painter);
 
-            // 3. Inner shadow (painted after background, before border)
             if (hasStyle(FrameStyle::InnerShadow))
             {
                 paintInnerShadow(painter);
             }
 
-            // 4. Border
             paintBorder(painter);
         }
-
-        // ==================== Shadow Painting ====================
 
         void Frame::paintShadow(QG::IPainter *painter) const
         {
@@ -159,17 +193,14 @@ namespace QW
             QC::i32 offset = static_cast<QC::i32>(m_metrics.shadowOffset);
             QC::u32 size = m_metrics.shadowSize;
 
-            // Simple solid shadow (soft shadow would require blur)
             Rect shadowRect = {
                 m_bounds.x + offset,
                 m_bounds.y + offset,
                 m_bounds.width,
                 m_bounds.height};
 
-            // Draw shadow layers for soft effect
             if (hasStyle(FrameStyle::DropShadowSoft) && size > 1)
             {
-                // Draw multiple expanding rectangles with decreasing alpha
                 for (QC::u32 i = 0; i < size; ++i)
                 {
                     QC::u8 alpha = static_cast<QC::u8>((m_colors.shadow.a * (size - i)) / size);
@@ -186,14 +217,12 @@ namespace QW
             }
             else
             {
-                // Simple solid shadow
                 painter->fillRect(shadowRect, m_colors.shadow);
             }
         }
 
         void Frame::paintInnerShadow(QG::IPainter *painter) const
         {
-            // Inner shadow creates a subtle inset effect
             QC::u32 size = m_metrics.shadowSize > 3 ? 3 : m_metrics.shadowSize;
             QC::u8 baseAlpha = m_colors.shadow.a / 2;
 
@@ -204,19 +233,15 @@ namespace QW
 
                 QC::i32 inset = static_cast<QC::i32>(m_metrics.borderWidth + i);
 
-                // Top edge
                 Rect top = {m_bounds.x + inset, m_bounds.y + inset,
                             m_bounds.width - static_cast<QC::u32>(inset * 2), 1};
                 painter->fillRect(top, layerColor);
 
-                // Left edge
                 Rect left = {m_bounds.x + inset, m_bounds.y + inset,
                              1, m_bounds.height - static_cast<QC::u32>(inset * 2)};
                 painter->fillRect(left, layerColor);
             }
         }
-
-        // ==================== Background Painting ====================
 
         void Frame::paintBackground(QG::IPainter *painter) const
         {
@@ -224,7 +249,7 @@ namespace QW
 
             if (fillType & FrameStyle::FillTransparent)
             {
-                return; // No fill
+                return;
             }
 
             if (fillType & FrameStyle::FillGradientV)
@@ -237,7 +262,6 @@ namespace QW
             }
             else
             {
-                // Default: solid fill
                 paintFillSolid(painter);
             }
         }
@@ -249,9 +273,10 @@ namespace QW
 
         void Frame::paintFillGradientV(QG::IPainter *painter) const
         {
-            // Vertical gradient: top color to bottom color
             if (m_bounds.height == 0)
+            {
                 return;
+            }
 
             for (QC::u32 y = 0; y < m_bounds.height; ++y)
             {
@@ -271,9 +296,10 @@ namespace QW
 
         void Frame::paintFillGradientH(QG::IPainter *painter) const
         {
-            // Horizontal gradient: left color to right color
             if (m_bounds.width == 0)
+            {
                 return;
+            }
 
             for (QC::u32 x = 0; x < m_bounds.width; ++x)
             {
@@ -290,8 +316,6 @@ namespace QW
                 painter->fillRect(line, lineColor);
             }
         }
-
-        // ==================== Border Painting ====================
 
         void Frame::paintBorder(QG::IPainter *painter) const
         {
@@ -324,14 +348,12 @@ namespace QW
             }
             else
             {
-                // Default: flat border
                 paintBorderFlat(painter);
             }
         }
 
         void Frame::paintBorderFlat(QG::IPainter *painter) const
         {
-            // Simple single-line border
             QC::u32 w = m_metrics.borderWidth;
 
             for (QC::u32 i = 0; i < w; ++i)
@@ -347,30 +369,25 @@ namespace QW
 
         void Frame::paintBorderRaised(QG::IPainter *painter) const
         {
-            // 3D raised: light on top-left, dark on bottom-right
             QC::u32 w = m_metrics.borderWidth;
 
             for (QC::u32 i = 0; i < w; ++i)
             {
                 QC::i32 inset = static_cast<QC::i32>(i);
 
-                // Top edge (light)
                 Rect top = {m_bounds.x + inset, m_bounds.y + inset,
                             m_bounds.width - static_cast<QC::u32>(inset * 2), 1};
                 painter->fillRect(top, m_colors.borderLight);
 
-                // Left edge (light)
                 Rect left = {m_bounds.x + inset, m_bounds.y + inset,
                              1, m_bounds.height - static_cast<QC::u32>(inset * 2)};
                 painter->fillRect(left, m_colors.borderLight);
 
-                // Bottom edge (dark)
                 Rect bottom = {m_bounds.x + inset,
                                m_bounds.y + static_cast<QC::i32>(m_bounds.height) - 1 - inset,
                                m_bounds.width - static_cast<QC::u32>(inset * 2), 1};
                 painter->fillRect(bottom, m_colors.borderDark);
 
-                // Right edge (dark)
                 Rect right = {m_bounds.x + static_cast<QC::i32>(m_bounds.width) - 1 - inset,
                               m_bounds.y + inset,
                               1, m_bounds.height - static_cast<QC::u32>(inset * 2)};
@@ -380,30 +397,25 @@ namespace QW
 
         void Frame::paintBorderSunken(QG::IPainter *painter) const
         {
-            // 3D sunken: dark on top-left, light on bottom-right
             QC::u32 w = m_metrics.borderWidth;
 
             for (QC::u32 i = 0; i < w; ++i)
             {
                 QC::i32 inset = static_cast<QC::i32>(i);
 
-                // Top edge (dark)
                 Rect top = {m_bounds.x + inset, m_bounds.y + inset,
                             m_bounds.width - static_cast<QC::u32>(inset * 2), 1};
                 painter->fillRect(top, m_colors.borderDark);
 
-                // Left edge (dark)
                 Rect left = {m_bounds.x + inset, m_bounds.y + inset,
                              1, m_bounds.height - static_cast<QC::u32>(inset * 2)};
                 painter->fillRect(left, m_colors.borderDark);
 
-                // Bottom edge (light)
                 Rect bottom = {m_bounds.x + inset,
                                m_bounds.y + static_cast<QC::i32>(m_bounds.height) - 1 - inset,
                                m_bounds.width - static_cast<QC::u32>(inset * 2), 1};
                 painter->fillRect(bottom, m_colors.borderLight);
 
-                // Right edge (light)
                 Rect right = {m_bounds.x + static_cast<QC::i32>(m_bounds.width) - 1 - inset,
                               m_bounds.y + inset,
                               1, m_bounds.height - static_cast<QC::u32>(inset * 2)};
@@ -413,46 +425,53 @@ namespace QW
 
         void Frame::paintBorderEtched(QG::IPainter *painter) const
         {
-            // Etched: outer dark line, inner light line
-            // Outer rectangle (dark)
-            painter->drawRect(m_bounds, m_colors.borderDark);
-
-            // Inner rectangle (light, offset by 1)
-            if (m_bounds.width > 2 && m_bounds.height > 2)
+            QC::u32 w = m_metrics.borderWidth;
+            for (QC::u32 i = 0; i < w; ++i)
             {
-                Rect inner = {m_bounds.x + 1, m_bounds.y + 1,
-                              m_bounds.width - 2, m_bounds.height - 2};
-                painter->drawRect(inner, m_colors.borderLight);
-            }
-        }
+                QC::i32 inset = static_cast<QC::i32>(i);
 
-        void Frame::paintBorderGroove(QG::IPainter *painter) const
-        {
-            // Groove: outer light line, inner dark line (inverse of etched)
-            // Outer rectangle (light)
-            painter->drawRect(m_bounds, m_colors.borderLight);
+                Rect outer = {m_bounds.x + inset, m_bounds.y + inset,
+                              m_bounds.width - static_cast<QC::u32>(inset * 2),
+                              m_bounds.height - static_cast<QC::u32>(inset * 2)};
+                painter->drawRect(outer, m_colors.borderLight);
 
-            // Inner rectangle (dark, offset by 1)
-            if (m_bounds.width > 2 && m_bounds.height > 2)
-            {
-                Rect inner = {m_bounds.x + 1, m_bounds.y + 1,
-                              m_bounds.width - 2, m_bounds.height - 2};
+                Rect inner = {outer.x + 1, outer.y + 1,
+                              outer.width - 2,
+                              outer.height - 2};
                 painter->drawRect(inner, m_colors.borderDark);
             }
         }
 
         void Frame::paintBorderDouble(QG::IPainter *painter) const
         {
-            // Double: two parallel lines
-            painter->drawRect(m_bounds, m_colors.borderMid);
-
-            if (m_bounds.width > 4 && m_bounds.height > 4)
+            QC::i32 inset = 0;
+            for (QC::u32 i = 0; i < 2; ++i)
             {
-                Rect inner = {m_bounds.x + 2, m_bounds.y + 2,
-                              m_bounds.width - 4, m_bounds.height - 4};
-                painter->drawRect(inner, m_colors.borderMid);
+                Rect rect = {m_bounds.x + inset,
+                             m_bounds.y + inset,
+                             m_bounds.width - inset * 2,
+                             m_bounds.height - inset * 2};
+                painter->drawRect(rect, m_colors.borderMid);
+                inset += m_metrics.borderWidth;
             }
         }
 
-    } // namespace Controls
+        void Frame::paintBorderGroove(QG::IPainter *painter) const
+        {
+            QC::u32 w = m_metrics.borderWidth;
+            for (QC::u32 i = 0; i < w; ++i)
+            {
+                QC::i32 inset = static_cast<QC::i32>(i);
+                Rect outer = {m_bounds.x + inset, m_bounds.y + inset,
+                              m_bounds.width - static_cast<QC::u32>(inset * 2),
+                              m_bounds.height - static_cast<QC::u32>(inset * 2)};
+                painter->drawRect(outer, m_colors.borderDark);
+
+                Rect inner = {outer.x + 1, outer.y + 1,
+                              outer.width - 2,
+                              outer.height - 2};
+                painter->drawRect(inner, m_colors.borderLight);
+            }
+        }
+    }
 } // namespace QW

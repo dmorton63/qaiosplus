@@ -7,5 +7,11 @@ add_library(QWindowing STATIC
 )
 
 target_include_directories(QWindowing PUBLIC include)
-target_link_libraries(QWindowing PUBLIC QCommon QGraphics QEvent QKMemory)
+target_link_libraries(QWindowing PUBLIC
+    QCommon
+    QGraphics
+    QEvent
+    QKMemory
+    QWControls
+    QWInterfaces)
 target_compile_options(QWindowing PRIVATE ${KERNEL_COMPILE_FLAGS})

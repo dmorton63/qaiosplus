@@ -1,16 +1,14 @@
-// QWControls Base - Base implementation for all controls
+// Default control implementation
 // Namespace: QW::Controls
 
-#include "QWCtrlBase.h"
+#include "QWControls/Base/ControlBase.h"
+#include "QWControls/Containers/Panel.h"
 #include "QWWindow.h"
-#include "QWCtrlPanel.h"
 
 namespace QW
 {
     namespace Controls
     {
-
-        // Static ID counter
         ControlId ControlBase::s_nextId = 1;
 
         ControlBase::ControlBase()
@@ -22,7 +20,7 @@ namespace QW
               m_visible(true),
               m_focused(false),
               m_state(ControlState::Normal),
-              m_bgColor(Color(240, 240, 240, 255))
+              m_bgColor(QC::Color(240, 240, 240, 255))
         {
         }
 
@@ -35,30 +33,27 @@ namespace QW
               m_visible(true),
               m_focused(false),
               m_state(ControlState::Normal),
-              m_bgColor(Color(240, 240, 240, 255))
+              m_bgColor(QC::Color(240, 240, 240, 255))
         {
         }
 
         Rect ControlBase::absoluteBounds() const
         {
             Rect abs = m_bounds;
-
-            // Walk up the parent chain to get absolute position
-            Panel *p = m_parent;
-            while (p != nullptr)
+            Panel *current = m_parent;
+            while (current)
             {
-                Rect parentBounds = p->bounds();
+                Rect parentBounds = current->bounds();
                 abs.x += parentBounds.x;
                 abs.y += parentBounds.y;
-                p = p->parent();
+                current = current->parent();
             }
-
             return abs;
         }
 
         bool ControlBase::hitTest(QC::i32 x, QC::i32 y) const
         {
-            Rect abs = absoluteBounds();
+            QC::Rect abs = absoluteBounds();
             return x >= abs.x && x < abs.x + static_cast<QC::i32>(abs.width) &&
                    y >= abs.y && y < abs.y + static_cast<QC::i32>(abs.height);
         }
@@ -72,7 +67,9 @@ namespace QW
         void ControlBase::setFocused(bool focused)
         {
             if (m_focused == focused)
+            {
                 return;
+            }
 
             m_focused = focused;
             if (focused)
@@ -96,7 +93,9 @@ namespace QW
         bool ControlBase::onEvent(const QK::Event::Event &event)
         {
             if (!m_enabled || !m_visible)
+            {
                 return false;
+            }
 
             switch (event.type())
             {
@@ -140,6 +139,5 @@ namespace QW
                 return false;
             }
         }
-
-    } // namespace Controls
+    }
 } // namespace QW

@@ -1,7 +1,7 @@
 // QWControls Label - Static text label implementation
 // Namespace: QW::Controls
 
-#include "QWCtrlLabel.h"
+#include "QWControls/Leaf/Label.h"
 #include "QKMemHeap.h"
 #include "QCMemUtil.h"
 #include "QCString.h"

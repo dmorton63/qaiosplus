@@ -121,6 +121,19 @@ namespace QFS
         QC::Status remove(const char *path) override;
 
     private:
+        struct FATFileHandle
+        {
+            QC::u32 startCluster;
+            QC::u64 size;
+        };
+
+        struct FATDirHandle
+        {
+            QC::u32 startCluster;
+            QC::u32 currentCluster;
+            QC::u32 entryIndex;
+        };
+
         QC::u32 clusterToSector(QC::u32 cluster);
         QC::u32 readFAT(QC::u32 cluster);
         void writeFAT(QC::u32 cluster, QC::u32 value);
@@ -128,6 +141,10 @@ namespace QFS
         void freeClusterChain(QC::u32 startCluster);
 
         FAT32DirEntry *findEntry(const char *path, QC::u32 *parentCluster = nullptr);
+        bool loadCluster(QC::u32 cluster);
+        bool iterateDirectory(QC::u32 startCluster, const char *fatName, FAT32DirEntry *outEntry, QC::u32 *entryIndex = nullptr);
+        QC::u32 traverseToCluster(QC::u32 startCluster, QC::u32 index);
+        QC::u32 entryCluster(const FAT32DirEntry &entry) const;
         void parseName(const char *fatName, char *outName);
         void formatName(const char *name, char *fatName);
 
@@ -137,6 +154,7 @@ namespace QFS
         QC::u32 m_dataStart;
         QC::u32 m_clusterSize;
         QC::u8 *m_clusterBuffer;
+        FAT32DirEntry m_entryCache;
     };
 
     // Block device interface

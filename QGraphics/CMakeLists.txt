@@ -1,8 +1,9 @@
 # QGraphics - Core graphics abstractions
-# Header-only interface library for now
-# Future: add QGPainterSoftware.cpp when needed
 
-add_library(QGraphics INTERFACE)
+add_library(QGraphics STATIC
+	src/QG/PainterSurface.cpp
+)
 
-target_include_directories(QGraphics INTERFACE include)
-target_link_libraries(QGraphics INTERFACE QCommon)
+target_include_directories(QGraphics PUBLIC include)
+target_link_libraries(QGraphics PUBLIC QCommon)
+target_compile_options(QGraphics PRIVATE ${KERNEL_COMPILE_FLAGS})

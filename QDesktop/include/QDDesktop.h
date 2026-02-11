@@ -26,10 +26,13 @@
 #include "QCGeometry.h"
 #include "QCUIStyle.h"
 #include "QWWindow.h"
-#include "QWCtrlPanel.h"
-#include "QWCtrlButton.h"
-#include "QWCtrlLabel.h"
+#include "QWControls/Containers/Panel.h"
+#include "QWControls/Leaf/Button.h"
+#include "QWControls/Leaf/Label.h"
+#include "QWInterfaces/IControl.h"
+#include "QCVector.h"
 #include "QDAccent.h"
+#include "QDTerminal.h"
 
 namespace QD
 {
@@ -127,14 +130,23 @@ namespace QD
         bool isInitialized() const { return m_initialized; }
 
     private:
+        bool tryInitializeFromJson();
+
+        void clearJsonDesktopState();
+
         void createTopBar();
         void createSidebar();
         void createTaskbar();
         void updateLayout();
         void applyColors();
 
+        void openTerminal();
+
         // Sidebar button click handler
         static void onSidebarClick(QW::Controls::Button *button, void *userData);
+
+        // JSON desktop action handlers
+        static void onJsonTerminalClick(QW::Controls::Button *button, void *userData);
 
         // Taskbar button click handler
         static void onTaskbarClick(QW::Controls::Button *button, void *userData);
@@ -145,6 +157,10 @@ namespace QD
 
         // The desktop window (fullscreen, no chrome)
         QW::Window *m_desktopWindow;
+
+        bool m_jsonDriven;
+        QC::Vector<QW::Controls::IControl *> m_jsonControls;
+        QC::Vector<QW::Controls::IControl *> m_jsonRootControls;
 
         // Panels
         QW::Controls::Panel *m_topBar;
@@ -173,6 +189,8 @@ namespace QD
         // Clock state
         QC::u32 m_hours;
         QC::u32 m_minutes;
+
+        Terminal *m_terminal;
     };
 
 } // namespace QD

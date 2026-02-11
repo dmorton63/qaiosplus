@@ -79,6 +79,19 @@ limine_kernel_address_request:
     dq 0                     ; Revision
     dq 0                     ; Response pointer
 
+; Module request (initrd / ramdisk)
+align 8
+global limine_module_request
+limine_module_request:
+    dq LIMINE_COMMON_MAGIC_0
+    dq LIMINE_COMMON_MAGIC_1
+    dq 0x3e7e279702be32af   ; Module request ID 0
+    dq 0xca1c4f3bd1280cee   ; Module request ID 1
+    dq 0                     ; Revision
+    dq 0                     ; Response pointer
+    dq 0                     ; Internal module count
+    dq 0                     ; Internal modules pointer
+
 ; ============================================================================
 ; BSS section
 ; ============================================================================

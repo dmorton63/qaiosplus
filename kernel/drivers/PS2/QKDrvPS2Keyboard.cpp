@@ -221,27 +221,129 @@ namespace QKDrv
 
         char Keyboard::keyToChar(Key key)
         {
-            bool shift = m_shiftPressed ^ m_capsLock;
+            const bool shift = m_shiftPressed;
+            const bool caps = m_capsLock;
 
-            if (key >= Key::A && key <= Key::M)
+            auto letter = [&](char c) -> char
             {
-                char base = 'a' + (static_cast<QC::u8>(key) - static_cast<QC::u8>(Key::A));
-                return shift ? (base - 32) : base;
-            }
+                const bool upper = (shift ^ caps);
+                return upper ? static_cast<char>(c - 32) : c;
+            };
 
-            if (key >= Key::Num0 && key <= Key::Num9 && !m_shiftPressed)
+            switch (key)
             {
-                return '0' + (static_cast<QC::u8>(key) - static_cast<QC::u8>(Key::Num0));
-            }
+            // Letters
+            case Key::Q:
+                return letter('q');
+            case Key::W:
+                return letter('w');
+            case Key::E:
+                return letter('e');
+            case Key::R:
+                return letter('r');
+            case Key::T:
+                return letter('t');
+            case Key::Y:
+                return letter('y');
+            case Key::U:
+                return letter('u');
+            case Key::I:
+                return letter('i');
+            case Key::O:
+                return letter('o');
+            case Key::P:
+                return letter('p');
+            case Key::A:
+                return letter('a');
+            case Key::S:
+                return letter('s');
+            case Key::D:
+                return letter('d');
+            case Key::F:
+                return letter('f');
+            case Key::G:
+                return letter('g');
+            case Key::H:
+                return letter('h');
+            case Key::J:
+                return letter('j');
+            case Key::K:
+                return letter('k');
+            case Key::L:
+                return letter('l');
+            case Key::Z:
+                return letter('z');
+            case Key::X:
+                return letter('x');
+            case Key::C:
+                return letter('c');
+            case Key::V:
+                return letter('v');
+            case Key::B:
+                return letter('b');
+            case Key::N:
+                return letter('n');
+            case Key::M:
+                return letter('m');
 
-            if (key == Key::Space)
+            // Digits + shifted symbols
+            case Key::Num1:
+                return shift ? '!' : '1';
+            case Key::Num2:
+                return shift ? '@' : '2';
+            case Key::Num3:
+                return shift ? '#' : '3';
+            case Key::Num4:
+                return shift ? '$' : '4';
+            case Key::Num5:
+                return shift ? '%' : '5';
+            case Key::Num6:
+                return shift ? '^' : '6';
+            case Key::Num7:
+                return shift ? '&' : '7';
+            case Key::Num8:
+                return shift ? '*' : '8';
+            case Key::Num9:
+                return shift ? '(' : '9';
+            case Key::Num0:
+                return shift ? ')' : '0';
+
+            // Punctuation
+            case Key::Space:
                 return ' ';
-            if (key == Key::Enter)
+            case Key::Enter:
                 return '\n';
-            if (key == Key::Tab)
+            case Key::Tab:
                 return '\t';
+            case Key::Backspace:
+                return '\b';
 
-            return 0;
+            case Key::Minus:
+                return shift ? '_' : '-';
+            case Key::Equals:
+                return shift ? '+' : '=';
+            case Key::LeftBracket:
+                return shift ? '{' : '[';
+            case Key::RightBracket:
+                return shift ? '}' : ']';
+            case Key::Backslash:
+                return shift ? '|' : '\\';
+            case Key::Semicolon:
+                return shift ? ':' : ';';
+            case Key::Apostrophe:
+                return shift ? '"' : '\'';
+            case Key::Backtick:
+                return shift ? '~' : '`';
+            case Key::Comma:
+                return shift ? '<' : ',';
+            case Key::Period:
+                return shift ? '>' : '.';
+            case Key::Slash:
+                return shift ? '?' : '/';
+
+            default:
+                return 0;
+            }
         }
 
     } // namespace PS2

@@ -1,17 +1,13 @@
-// QWControls Panel - Decorated container implementation
+// Panel implementation
 // Namespace: QW::Controls
-//
-// Panel = Container + Frame
-// Extends Container for children, uses Frame for visual decoration
 
-#include "QWCtrlPanel.h"
+#include "QWControls/Containers/Panel.h"
 #include "QWWindow.h"
 
 namespace QW
 {
     namespace Controls
     {
-
         Panel::Panel()
             : Container(),
               m_frame(),
@@ -40,8 +36,6 @@ namespace QW
             syncFrameFromBorderStyle();
         }
 
-        // ==================== BorderStyle API ====================
-
         void Panel::setBorderStyle(BorderStyle style)
         {
             m_borderStyle = style;
@@ -64,29 +58,27 @@ namespace QW
 
         void Panel::syncFrameFromBorderStyle()
         {
-            QC::u32 frameStyle = FrameStyle::FillSolid;
+            QC::u32 style = FrameStyle::FillSolid;
             switch (m_borderStyle)
             {
             case BorderStyle::None:
-                frameStyle = FrameStyle::FillSolid;
+                style = FrameStyle::FillSolid;
                 break;
             case BorderStyle::Flat:
-                frameStyle = FrameStyle::BorderFlat | FrameStyle::FillSolid;
+                style = FrameStyle::BorderFlat | FrameStyle::FillSolid;
                 break;
             case BorderStyle::Raised:
-                frameStyle = FrameStyle::BorderRaised | FrameStyle::FillSolid;
+                style = FrameStyle::BorderRaised | FrameStyle::FillSolid;
                 break;
             case BorderStyle::Sunken:
-                frameStyle = FrameStyle::BorderSunken | FrameStyle::FillSolid;
+                style = FrameStyle::BorderSunken | FrameStyle::FillSolid;
                 break;
             case BorderStyle::Etched:
-                frameStyle = FrameStyle::BorderEtched | FrameStyle::FillSolid;
+                style = FrameStyle::BorderEtched | FrameStyle::FillSolid;
                 break;
             }
-            m_frame.setStyle(frameStyle);
+            m_frame.setStyle(style);
         }
-
-        // ==================== Padding ====================
 
         void Panel::setPadding(QC::u32 left, QC::u32 top, QC::u32 right, QC::u32 bottom)
         {
@@ -107,30 +99,26 @@ namespace QW
             return client;
         }
 
-        // ==================== Rendering ====================
-
         void Panel::paint()
         {
             if (!m_visible || !m_window)
+            {
                 return;
+            }
 
-            // Paint frame (background + border) if visible
             if (m_frameVisible)
             {
                 Rect abs = absoluteBounds();
                 m_frame.setBounds(abs);
 
-                // Sync background color
                 FrameColors colors = m_frame.colors();
                 colors.background = m_bgColor;
                 m_frame.setColors(colors);
 
-                m_frame.paint(m_window);
+                m_frame.paint(m_window->painter());
             }
 
-            // Paint children (delegated to Container)
             paintChildren();
         }
-
-    } // namespace Controls
+    }
 } // namespace QW

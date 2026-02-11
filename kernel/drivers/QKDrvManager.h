@@ -39,6 +39,7 @@ namespace QKDrv
 
         void probePS2();
         void probeUSB();
+        void probeNetwork();
 
         QC::Vector<DriverBase *> m_controllers;
         MouseDriver *m_mouseDriver = nullptr;

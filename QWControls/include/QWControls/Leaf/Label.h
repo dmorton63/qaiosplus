@@ -4,13 +4,13 @@
 // Namespace: QW::Controls
 
 #include "QCTypes.h"
-#include "QWCtrlBase.h"
-#include "QWWindowManager.h"
-#include "QWWindow.h"
+#include "QWControls/Base/ControlBase.h"
 #include "QKEventTypes.h"
 
 namespace QW
 {
+    class Window;
+
     namespace Controls
     {
 

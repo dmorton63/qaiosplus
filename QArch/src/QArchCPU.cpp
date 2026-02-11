@@ -8,6 +8,47 @@
 namespace QArch
 {
 
+    namespace
+    {
+        // Enable x87 FPU + SSE/SSE2 instruction usage in kernel mode.
+        // Without this, any compiler-emitted SSE instruction (e.g. for double math)
+        // will raise #UD (invalid opcode) on many setups.
+        void enableFpuAndSse()
+        {
+            // Clear TS to avoid #NM on FPU/SSE instructions.
+            asm volatile("clts" ::: "memory");
+
+            QC::u64 cr0;
+            asm volatile("mov %%cr0, %0" : "=r"(cr0));
+
+            // CR0:
+            // - Clear EM (bit 2): disable FPU emulation
+            // - Set MP (bit 1): monitor coprocessor
+            // - Clear TS (bit 3): task switched
+            cr0 &= ~(1ULL << 2);
+            cr0 |= (1ULL << 1);
+            cr0 &= ~(1ULL << 3);
+            // Optionally enable native x87 error reporting (bit 5)
+            cr0 |= (1ULL << 5);
+
+            asm volatile("mov %0, %%cr0" : : "r"(cr0) : "memory");
+
+            QC::u64 cr4;
+            asm volatile("mov %%cr4, %0" : "=r"(cr4));
+
+            // CR4:
+            // - OSFXSR (bit 9): enable FXSR/SSE instructions
+            // - OSXMMEXCPT (bit 10): enable unmasked SSE exceptions
+            cr4 |= (1ULL << 9);
+            cr4 |= (1ULL << 10);
+
+            asm volatile("mov %0, %%cr4" : : "r"(cr4) : "memory");
+
+            // Initialize FPU state.
+            asm volatile("fninit" ::: "memory");
+        }
+    }
+
     CPU &CPU::instance()
     {
         static CPU instance;
@@ -30,6 +71,17 @@ namespace QArch
         QC_LOG_INFO("QArchCPU", "Detecting CPU");
         detectCPU();
         detectFeatures();
+
+        // Enable FPU/SSE early so freestanding code can safely use double/float math.
+        if (m_features.fpu && m_features.sse && m_features.sse2)
+        {
+            enableFpuAndSse();
+            QC_LOG_INFO("QArchCPU", "FPU/SSE enabled");
+        }
+        else
+        {
+            QC_LOG_WARN("QArchCPU", "CPU lacks SSE2; floating-point math may fault");
+        }
 
         QC_LOG_INFO("QArchCPU", "CPU: %s", m_brandString[0] ? m_brandString : m_vendorString);
         QC_LOG_INFO("QArchCPU", "Family: %u, Model: %u, Stepping: %u",

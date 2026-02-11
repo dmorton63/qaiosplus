@@ -8,6 +8,10 @@ add_executable(qaios_kernel
 set_source_files_properties(QKBoot.asm PROPERTIES LANGUAGE ASM_NASM)
 target_sources(qaios_kernel PRIVATE QKBoot.asm)
 
+target_include_directories(qaios_kernel PRIVATE
+    ${PROJECT_SOURCE_DIR}/limine
+)
+
 target_link_libraries(qaios_kernel PRIVATE
     QCommon
     QKernel

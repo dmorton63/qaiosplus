@@ -1,15 +1,14 @@
-// QWControls Container - Pure container control implementation
+// Container implementation
 // Namespace: QW::Controls
 
-#include "QWCtrlContainer.h"
-#include "QWCtrlPanel.h"
+#include "QWControls/Containers/Container.h"
+#include "QWControls/Containers/Panel.h"
 #include "QWWindow.h"
 
 namespace QW
 {
     namespace Controls
     {
-
         Container::Container()
             : ControlBase(),
               m_focusedChild(nullptr),
@@ -28,15 +27,11 @@ namespace QW
 
         Container::~Container()
         {
-            // Note: We don't own the children, just clear the vector
             m_children.clear();
         }
 
-        // ==================== Type Information ====================
-
         Panel *Container::asPanel()
         {
-            // Container is not a Panel - subclasses override if they are
             return nullptr;
         }
 
@@ -45,14 +40,13 @@ namespace QW
             return nullptr;
         }
 
-        // ==================== Child Management ====================
-
         void Container::addChild(IControl *child)
         {
             if (!child)
+            {
                 return;
+            }
 
-            // Remove from previous parent if any
             Panel *oldParent = child->parent();
             if (oldParent && oldParent != this->asPanel())
             {
@@ -67,23 +61,29 @@ namespace QW
         void Container::removeChild(IControl *child)
         {
             if (!child)
+            {
                 return;
+            }
 
             for (QC::usize i = 0; i < m_children.size(); ++i)
             {
                 if (m_children[i] == child)
                 {
-                    // Clear focus/hover if this was the focused/hovered child
                     if (m_focusedChild == child)
+                    {
                         m_focusedChild = nullptr;
+                    }
                     if (m_hoveredChild == child)
+                    {
                         m_hoveredChild = nullptr;
+                    }
                     if (m_capturedChild == child)
+                    {
                         m_capturedChild = nullptr;
+                    }
 
                     child->setParent(nullptr);
 
-                    // Shift remaining elements down
                     for (QC::usize j = i; j < m_children.size() - 1; ++j)
                     {
                         m_children[j] = m_children[j + 1];
@@ -97,7 +97,9 @@ namespace QW
         void Container::removeChildAt(QC::usize index)
         {
             if (index >= m_children.size())
+            {
                 return;
+            }
 
             IControl *child = m_children[index];
             removeChild(child);
@@ -118,14 +120,18 @@ namespace QW
         IControl *Container::childAt(QC::usize index)
         {
             if (index >= m_children.size())
+            {
                 return nullptr;
+            }
             return m_children[index];
         }
 
         const IControl *Container::childAt(QC::usize index) const
         {
             if (index >= m_children.size())
+            {
                 return nullptr;
+            }
             return m_children[index];
         }
 
@@ -134,9 +140,10 @@ namespace QW
             for (QC::usize i = 0; i < m_children.size(); ++i)
             {
                 if (m_children[i]->id() == id)
+                {
                     return m_children[i];
+                }
 
-                // Recursively search in child containers
                 if (m_children[i]->isContainer())
                 {
                     Panel *childPanel = m_children[i]->asPanel();
@@ -144,7 +151,9 @@ namespace QW
                     {
                         IControl *found = childPanel->findChild(id);
                         if (found)
+                        {
                             return found;
+                        }
                     }
                 }
             }
@@ -153,7 +162,6 @@ namespace QW
 
         IControl *Container::childAtPoint(QC::i32 x, QC::i32 y)
         {
-            // Search in reverse order (topmost first)
             for (QC::isize i = static_cast<QC::isize>(m_children.size()) - 1; i >= 0; --i)
             {
                 IControl *child = m_children[static_cast<QC::usize>(i)];
@@ -165,14 +173,13 @@ namespace QW
             return nullptr;
         }
 
-        // ==================== Rendering ====================
-
         void Container::paint()
         {
             if (!m_visible || !m_window)
+            {
                 return;
+            }
 
-            // Container has no visual representation - just paint children
             paintChildren();
         }
 
@@ -187,32 +194,27 @@ namespace QW
             }
         }
 
-        // ==================== Event Handling ====================
-
         bool Container::onEvent(const QK::Event::Event &event)
         {
             if (!m_enabled || !m_visible)
+            {
                 return false;
+            }
 
-            // Route to base class which dispatches to specific handlers
             return ControlBase::onEvent(event);
         }
 
         bool Container::onMouseMove(QC::i32 x, QC::i32 y, QC::i32 deltaX, QC::i32 deltaY)
         {
-            // If we have a captured child (mouse button held), send to it
             if (m_capturedChild)
             {
                 return m_capturedChild->onMouseMove(x, y, deltaX, deltaY);
             }
 
-            // Find child under mouse
             IControl *child = childAtPoint(x, y);
 
-            // Handle hover transitions
             if (child != m_hoveredChild)
             {
-                // Exit from old hovered child
                 if (m_hoveredChild)
                 {
                     m_hoveredChild->onMouseMove(x, y, deltaX, deltaY);
@@ -221,7 +223,6 @@ namespace QW
                 m_hoveredChild = child;
             }
 
-            // Send move to current hovered child
             if (child)
             {
                 return child->onMouseMove(x, y, deltaX, deltaY);
@@ -236,12 +237,8 @@ namespace QW
 
             if (child)
             {
-                // Capture mouse to this child
                 m_capturedChild = child;
-
-                // Set focus
                 setFocusedChild(child);
-
                 return child->onMouseDown(x, y, button);
             }
 
@@ -271,7 +268,6 @@ namespace QW
 
         bool Container::onMouseScroll(QC::i32 delta)
         {
-            // Send scroll to hovered or focused child
             if (m_hoveredChild)
             {
                 return m_hoveredChild->onMouseScroll(delta);
@@ -285,7 +281,6 @@ namespace QW
 
         bool Container::onKeyDown(QC::u8 scancode, QC::u8 keycode, char character, QK::Event::Modifiers mods)
         {
-            // Send keyboard events to focused child
             if (m_focusedChild)
             {
                 return m_focusedChild->onKeyDown(scancode, keycode, character, mods);
@@ -302,14 +297,13 @@ namespace QW
             return false;
         }
 
-        // ==================== Focus Management ====================
-
         void Container::setFocusedChild(IControl *child)
         {
             if (m_focusedChild == child)
+            {
                 return;
+            }
 
-            // Blur old focused child
             if (m_focusedChild)
             {
                 m_focusedChild->setFocused(false);
@@ -317,7 +311,6 @@ namespace QW
 
             m_focusedChild = child;
 
-            // Focus new child
             if (m_focusedChild)
             {
                 m_focusedChild->setFocused(true);
@@ -327,11 +320,12 @@ namespace QW
         void Container::focusNext()
         {
             if (m_children.empty())
+            {
                 return;
+            }
 
             QC::usize startIndex = 0;
 
-            // Find current focused index
             if (m_focusedChild)
             {
                 for (QC::usize i = 0; i < m_children.size(); ++i)
@@ -344,7 +338,6 @@ namespace QW
                 }
             }
 
-            // Find next enabled, visible control
             for (QC::usize i = 0; i < m_children.size(); ++i)
             {
                 QC::usize index = (startIndex + i) % m_children.size();
@@ -360,11 +353,12 @@ namespace QW
         void Container::focusPrevious()
         {
             if (m_children.empty())
+            {
                 return;
+            }
 
             QC::isize startIndex = static_cast<QC::isize>(m_children.size()) - 1;
 
-            // Find current focused index
             if (m_focusedChild)
             {
                 for (QC::usize i = 0; i < m_children.size(); ++i)
@@ -377,12 +371,13 @@ namespace QW
                 }
             }
 
-            // Find previous enabled, visible control
             for (QC::usize i = 0; i < m_children.size(); ++i)
             {
                 QC::isize index = startIndex - static_cast<QC::isize>(i);
                 if (index < 0)
+                {
                     index += static_cast<QC::isize>(m_children.size());
+                }
                 IControl *child = m_children[static_cast<QC::usize>(index)];
                 if (child->isEnabled() && child->isVisible())
                 {
@@ -391,8 +386,6 @@ namespace QW
                 }
             }
         }
-
-        // ==================== Coordinate Conversion ====================
 
         Point Container::windowToLocal(QC::i32 x, QC::i32 y) const
         {
@@ -405,6 +398,5 @@ namespace QW
             Rect abs = absoluteBounds();
             return {x + abs.x, y + abs.y};
         }
-
-    } // namespace Controls
+    }
 } // namespace QW

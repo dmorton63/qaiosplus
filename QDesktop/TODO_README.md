@@ -233,7 +233,7 @@ namespace QC
 - [x] Controls paint via `IPainter` abstraction
 
 ### 5.1 Base Control Enhancements
-- [x] `QWCtrlBase` - Common control base class
+- [x] `ControlBase` - Common control base class
   - [x] Event handling (IEventReceiver)
   - [x] Bounds and state management
   - [x] Parent/window hierarchy
@@ -241,7 +241,7 @@ namespace QC
 - [ ] Animation state machine
 - [ ] Layout constraints
 
-### 5.2 Vista-Style Button (`QWCtrlButton` upgrade)
+### 5.2 Vista-Style Button (`QW::Controls::Button` upgrade)
 - [x] Basic button with background/border
 - [ ] Gradient background with glass effect
 - [ ] Glow on hover (animated fade-in)
@@ -249,7 +249,7 @@ namespace QC
 - [ ] Disabled state (desaturated)
 - [ ] Focus ring with glow
 
-### 5.3 Text Box (`QWCtrlTextBox` upgrade)
+### 5.3 Text Box (`QW::Controls::TextBox` upgrade)
 - [x] Basic text input with cursor
 - [x] Selection highlighting
 - [ ] Glass-style background
@@ -258,22 +258,22 @@ namespace QC
 - [ ] Placeholder text with alpha
 
 ### 5.4 Controls Created
-- [x] `QWCtrlScrollBar` - Vertical/horizontal scrollbar with thumb
-- [x] `QWCtrlComboBox` - Dropdown combo box
-- [x] `QWCtrlLabel` - Text label control
-- [x] `QWCtrlListView` - Multi-column list with selection
+- [x] `QW::Controls::ScrollBar` - Vertical/horizontal scrollbar with thumb
+- [x] `QW::Controls::ComboBox` - Dropdown combo box
+- [x] `QW::Controls::Label` - Text label control
+- [x] `QW::Controls::ListView` - Multi-column list with selection
 
 ### 5.5 Controls Still Needed
-- [ ] `QWCtrlCheckBox` - Check mark with glow animation
-- [ ] `QWCtrlRadioButton` - Radio with glow
-- [ ] `QWCtrlSlider` - Track with thumb
-- [ ] `QWCtrlProgressBar` - Progress indicator
-- [ ] `QWCtrlTabControl` - Tabbed container
-- [ ] `QWCtrlTreeView` - Hierarchical view with expand animation
-- [ ] `QWCtrlToolbar` - Toolbar with button groups
-- [ ] `QWCtrlMenu` - Popup menus
-- [ ] `QWCtrlTooltip` - Fade-in tooltip
-- [ ] `QWCtrlStatusBar` - Status bar
+- [ ] `QW::Controls::CheckBox` - Check mark with glow animation
+- [ ] `QW::Controls::RadioButton` - Radio with glow
+- [ ] `QW::Controls::Slider` - Track with thumb
+- [ ] `QW::Controls::ProgressBar` - Progress indicator
+- [ ] `QW::Controls::TabControl` - Tabbed container
+- [ ] `QW::Controls::TreeView` - Hierarchical view with expand animation
+- [ ] `QW::Controls::Toolbar` - Toolbar with button groups
+- [ ] `QW::Controls::Menu` - Popup menus
+- [ ] `QW::Controls::Tooltip` - Fade-in tooltip
+- [ ] `QW::Controls::StatusBar` - Status bar
 
 ### 5.6 UIStyle-Aware Controls (NEW)
 - [ ] All controls query `currentUIStyle()` for rendering

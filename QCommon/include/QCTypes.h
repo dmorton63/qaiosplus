@@ -6,6 +6,17 @@
 #include <cstdint>
 #include <cstddef>
 
+#if defined(__has_include)
+#if __has_include(<new>)
+#include <new>
+#define QC_COMMON_HAS_STDLIB_NEW 1
+#endif
+#endif
+
+#ifndef QC_COMMON_HAS_STDLIB_NEW
+#define QC_COMMON_HAS_STDLIB_NEW 0
+#endif
+
 namespace QC
 {
 
@@ -61,8 +72,10 @@ namespace QC
 
 } // namespace QC
 
-// Placement new operators for freestanding environment
+// Placement new operators for freestanding environment (only if std::new not available)
+#if !QC_COMMON_HAS_STDLIB_NEW
 inline void *operator new(QC::usize, void *ptr) noexcept { return ptr; }
 inline void *operator new[](QC::usize, void *ptr) noexcept { return ptr; }
 inline void operator delete(void *, void *) noexcept {}
 inline void operator delete[](void *, void *) noexcept {}
+#endif

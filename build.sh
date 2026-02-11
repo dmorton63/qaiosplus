@@ -18,10 +18,12 @@ PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_DIR="${PROJECT_DIR}/build"
 ISO_DIR="${PROJECT_DIR}/iso"
 LIMINE_DIR="${PROJECT_DIR}/limine"
+RAMDISK_DIR="${PROJECT_DIR}/ramdisk"
 
 # Output files
 KERNEL_ELF="${BUILD_DIR}/kernel/qaios.elf"
 ISO_FILE="${BUILD_DIR}/qaios-limine.iso"
+RAMDISK_OUTPUT="${ISO_DIR}/modules/ramdisk.img"
 
 echo -e "${CYAN}========================================${NC}"
 echo -e "${CYAN}       QAIOS Build System${NC}"
@@ -105,6 +107,26 @@ if [ ! -f "${KERNEL_ELF}" ]; then
 fi
 cp "${KERNEL_ELF}" "${ISO_DIR}/boot/"
 echo -e "${GREEN}      Copied kernel to iso/boot/${NC}"
+
+if [ -d "${RAMDISK_DIR}" ]; then
+    echo -e "${YELLOW}      Building ramdisk image...${NC}"
+    mkdir -p "${ISO_DIR}/modules"
+    RAMDISK_TEMP="${BUILD_DIR}/ramdisk.img"
+    dd if=/dev/zero of="${RAMDISK_TEMP}" bs=1M count=0 seek=4 >/dev/null 2>&1
+    mkfs.fat -F 32 -n QAIOSRD "${RAMDISK_TEMP}" >/dev/null 2>&1
+    if compgen -G "${RAMDISK_DIR}/*" >/dev/null; then
+        mcopy -s -i "${RAMDISK_TEMP}" ${RAMDISK_DIR}/* :: >/dev/null 2>&1
+    fi
+
+    # Also include the project-root desktop.json (if present)
+    if [ -f "${PROJECT_DIR}/desktop.json" ]; then
+        # Copy as an 8.3 name so our current FAT32 implementation (no LFN) can open it reliably.
+        # Keep the source name desktop.json, but store it in the image as DESKTOP.JSN.
+        mcopy -i "${RAMDISK_TEMP}" "${PROJECT_DIR}/desktop.json" ::/DESKTOP.JSN >/dev/null 2>&1
+    fi
+    cp "${RAMDISK_TEMP}" "${RAMDISK_OUTPUT}"
+    echo -e "${GREEN}      Ramdisk written to modules/ramdisk.img${NC}"
+fi
 
 # Step 5: Create ISO
 echo -e "${YELLOW}[5/5] Creating bootable ISO...${NC}"

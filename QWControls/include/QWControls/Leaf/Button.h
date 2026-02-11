@@ -4,19 +4,25 @@
 // Namespace: QW::Controls
 
 #include "QCTypes.h"
-#include "QWCtrlBase.h"
-#include "QWWindowManager.h"
-#include "QWWindow.h"
+#include "QWControls/Base/ControlBase.h"
 #include "QKEventTypes.h"
 
 namespace QW
 {
+    class Window;
+
     namespace Controls
     {
 
         // Button click callback
         class Button;
         using ButtonClickHandler = void (*)(Button *button, void *userData);
+
+        enum class ButtonStyle : QC::u8
+        {
+            Flat = 0,
+            Vista
+        };
 
         class Button : public ControlBase
         {
@@ -42,6 +48,14 @@ namespace QW
             Color pressedColor() const { return m_pressedColor; }
             void setPressedColor(Color color) { m_pressedColor = color; }
 
+            ButtonStyle visualStyle() const { return m_visualStyle; }
+            void setVisualStyle(ButtonStyle style);
+
+            void setVistaGradient(Color top, Color bottom);
+            void setVistaHighlight(Color top, Color bottom);
+            void setVistaBorders(Color outer, Color inner);
+            void setVistaGlow(Color glow);
+
             // Events
             void setClickHandler(ButtonClickHandler handler, void *userData);
 
@@ -54,11 +68,22 @@ namespace QW
             bool onMouseUp(QC::i32 x, QC::i32 y, QK::Event::MouseButton button) override;
 
         private:
+            void paintVista(const Rect &abs);
+
             char m_text[256];
             Color m_textColor;
             Color m_borderColor;
             Color m_hoverColor;
             Color m_pressedColor;
+
+            ButtonStyle m_visualStyle;
+            Color m_vistaGradientTop;
+            Color m_vistaGradientBottom;
+            Color m_vistaHighlightTop;
+            Color m_vistaHighlightBottom;
+            Color m_vistaGlow;
+            Color m_vistaBorderOuter;
+            Color m_vistaBorderInner;
 
             ButtonClickHandler m_clickHandler;
             void *m_clickUserData;

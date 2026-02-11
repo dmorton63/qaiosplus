@@ -28,11 +28,13 @@ namespace QFS
 
         // Status
         bool isOpen() const { return m_open; }
+        FileSystem *fileSystem() const { return m_fs; }
 
         // Implementation details
         void setHandle(void *handle) { m_fsHandle = handle; }
         void *handle() const { return m_fsHandle; }
         void setFileSystem(FileSystem *fs) { m_fs = fs; }
+        void setOpen(bool open) { m_open = open; }
 
     private:
         bool m_open;

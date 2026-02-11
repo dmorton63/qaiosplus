@@ -1,7 +1,7 @@
 // QWControls ScrollBar - Scrollbar control implementation
 // Namespace: QW::Controls
 
-#include "QWCtrlScrollBar.h"
+#include "QWControls/Leaf/ScrollBar.h"
 #include "QWWindow.h"
 
 namespace QW

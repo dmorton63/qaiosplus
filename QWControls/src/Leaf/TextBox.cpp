@@ -1,7 +1,7 @@
 // QWControls TextBox - Text input control implementation
 // Namespace: QW::Controls
 
-#include "QWCtrlTextBox.h"
+#include "QWControls/Leaf/TextBox.h"
 #include "QKMemHeap.h"
 #include "QCMemUtil.h"
 #include "QCString.h"
@@ -28,6 +28,8 @@ namespace QW
               m_selectionColor(Color(51, 153, 255, 255)),
               m_changeHandler(nullptr),
               m_changeUserData(nullptr),
+              m_submitHandler(nullptr),
+              m_submitUserData(nullptr),
               m_scrollOffset(0)
         {
             m_bgColor = Color(255, 255, 255, 255);
@@ -58,6 +60,8 @@ namespace QW
               m_selectionColor(Color(51, 153, 255, 255)),
               m_changeHandler(nullptr),
               m_changeUserData(nullptr),
+              m_submitHandler(nullptr),
+              m_submitUserData(nullptr),
               m_scrollOffset(0)
         {
             m_bgColor = Color(255, 255, 255, 255);
@@ -175,6 +179,12 @@ namespace QW
             m_changeUserData = userData;
         }
 
+        void TextBox::setTextSubmitHandler(TextSubmitHandler handler, void *userData)
+        {
+            m_submitHandler = handler;
+            m_submitUserData = userData;
+        }
+
         void TextBox::paint()
         {
             if (!m_window || !m_visible)
@@ -268,11 +278,29 @@ namespace QW
             }
 
             // Handle special keys
-            bool shift = (static_cast<QC::u8>(mods) & static_cast<QC::u8>(QK::Event::Modifiers::Shift)) != 0;
+            (void)keycode;
+            (void)mods;
+
+            // Enter submits the current text
+            if (character == '\n')
+            {
+                if (m_submitHandler)
+                {
+                    m_submitHandler(this, m_submitUserData);
+                }
+                return true;
+            }
+
+            // Backspace deletes one character
+            if (character == '\b' && !m_readOnly)
+            {
+                deleteChar(false);
+                invalidate();
+                return true;
+            }
+
+            // TODO: Map scancodes to actions (arrows, home, end, delete)
             (void)scancode;
-
-            // TODO: Map scancodes to actions (arrows, home, end, delete, backspace)
-
             return false;
         }
 

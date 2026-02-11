@@ -56,9 +56,10 @@ qaiosplus-ue-naming/
 │   └── QWCompositor.*      # Compositing/cursor
 │
 ├── QWControls/              # UI controls
-│   ├── QWCtrlButton.*      # Button widget
-│   ├── QWCtrlLabel.*       # Label widget
-│   └── QWCtrlTextBox.*     # Text input
+│   ├── Base/               # ControlBase plumbing
+│   ├── Containers/         # Panel, Frame, Container
+│   ├── Leaf/               # Button, Label, TextBox, ScrollBar
+│   └── Composite/          # ComboBox, ListView, etc.
 │
 ├── QFileSystem/             # File system (VFS, FAT32)
 ├── QNetwork/                # Networking (stub)
@@ -75,7 +76,7 @@ qaiosplus-ue-naming/
 - `QDrv*` - **Q**AIOS **Drv**ivers (hardware drivers)
 - `QKDrv*` - **Q**AIOS **K**ernel **Drv**ivers (kernel-level input drivers)
 - `QW*` - **Q**AIOS **W**indowing
-- `QWCtrl*` - **Q**AIOS **W**indowing **Ctrl**ontrols
+- `QWControls/*` - **Q**AIOS **W**indowing control library (hierarchical folders)
 - `QFS*` - **Q**AIOS **F**ile **S**ystem
 
 ### Files

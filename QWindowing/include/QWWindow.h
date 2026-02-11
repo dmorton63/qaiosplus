@@ -1,16 +1,21 @@
 #pragma once
 
-// QWindowing Window - Window class with IPainter support
+// QWindowing Window - Window hosting the UI control hierarchy
 // Namespace: QW
 
 #include "QCTypes.h"
-#include "QWWindowManager.h"
-#include "QKEventTypes.h"
 #include "QKEventListener.h"
-#include "QGPainter.h"
+#include "QKEventTypes.h"
+#include "QWControls/Containers/Panel.h"
+#include "QWInterfaces/IControl.h"
+#include "QG/PainterSurface.h"
 
 namespace QW
 {
+    class WindowManager;
+
+    using Rect = QC::Rect;
+    using Color = QC::Color;
 
     // Window flags
     namespace WindowFlags
@@ -29,93 +34,94 @@ namespace QW
                                     HasMinimize | HasMaximize;
     }
 
-    /// Window - implements IPainter for direct drawing
-    class Window : public QK::Event::IEventReceiver, public QG::IPainter
+    /// Window - wraps a painter surface and owns the root control tree
+    class Window : public QK::Event::IEventReceiver
     {
     public:
         Window(const char *title, Rect bounds);
         ~Window();
 
-        // IEventReceiver implementation
         bool onEvent(const QK::Event::Event &event) override;
         QK::Event::Category getEventMask() const override;
 
-        // Window ID for event routing
+        // Identity
         QC::u32 windowId() const { return m_windowId; }
         void setWindowId(QC::u32 id) { m_windowId = id; }
 
-        // Properties
+        // Window properties
         const char *title() const { return m_title; }
         void setTitle(const char *title);
 
-        Rect windowBounds() const { return m_bounds; }
+        Rect bounds() const { return m_bounds; }
         void setBounds(const Rect &bounds);
-
         Rect clientRect() const;
 
         QC::u32 flags() const { return m_flags; }
         void setFlags(QC::u32 flags) { m_flags = flags; }
 
-        bool isVisible() const { return m_flags & WindowFlags::Visible; }
+        bool isVisible() const { return (m_flags & WindowFlags::Visible) != 0; }
         void setVisible(bool visible);
 
         bool isFocused() const;
 
-        // Content buffer (for compositor)
+        // Control hierarchy
+        Controls::Panel *root() const { return m_root; }
+
+        // Buffer access (for compositor)
         QC::u32 *buffer() const { return m_buffer; }
-        QC::usize bufferSize() const { return m_bufferWidth * m_bufferHeight * 4; }
         QC::u32 bufferWidth() const { return m_bufferWidth; }
         QC::u32 bufferHeight() const { return m_bufferHeight; }
 
-        // Invalidation
+        // Raw painter surface (for low-level helpers)
+        QG::IPainter *painter() const { return m_painter; }
+
+        // Painter accessors (wrappers around the internal surface)
+        QC::Size surfaceSize() const;
+        QC::Rect surfaceBounds() const;
+
+        void setClipRect(const QC::Rect &rect);
+        void clearClipRect();
+        QC::Rect clipRect() const;
+
+        void setOrigin(QC::i32 x, QC::i32 y);
+        QC::Point origin() const;
+        void translate(QC::i32 dx, QC::i32 dy);
+
+        void setPixel(QC::i32 x, QC::i32 y, QC::Color color);
+        QC::Color pixel(QC::i32 x, QC::i32 y) const;
+
+        void drawLine(QC::i32 x1, QC::i32 y1, QC::i32 x2, QC::i32 y2, const QG::Pen &pen);
+        void drawHLine(QC::i32 x, QC::i32 y, QC::u32 length, QC::Color color);
+        void drawVLine(QC::i32 x, QC::i32 y, QC::u32 length, QC::Color color);
+
+        void fillRect(const QC::Rect &rect, const QG::Brush &brush);
+        void drawRect(const QC::Rect &rect, const QG::Pen &pen);
+
+        void drawRaisedBorder(const QC::Rect &rect, QC::Color light, QC::Color dark, QC::u32 width = 1);
+        void drawSunkenBorder(const QC::Rect &rect, QC::Color light, QC::Color dark, QC::u32 width = 1);
+        void drawEtchedBorder(const QC::Rect &rect, QC::Color light, QC::Color dark);
+
+        void fillGradientV(const QC::Rect &rect, QC::Color top, QC::Color bottom);
+        void fillGradientH(const QC::Rect &rect, QC::Color left, QC::Color right);
+
+        void drawText(QC::i32 x, QC::i32 y, const char *text, QC::Color color);
+        void drawText(const QC::Rect &rect, const char *text, QC::Color color, const QG::TextFormat &format);
+        QC::Size measureText(const char *text) const;
+
+        void blit(QC::i32 x, QC::i32 y, const QC::u32 *pixels, QC::u32 width, QC::u32 height, QC::u32 stride = 0);
+        void blitAlpha(QC::i32 x, QC::i32 y, const QC::u32 *pixels, QC::u32 width, QC::u32 height, QC::u32 stride = 0);
+
+        void clear(QC::Color color);
+
+        // Convenience overloads used by controls
+        void fillRect(const Rect &rect, Color color) { fillRect(static_cast<const QC::Rect &>(rect), QG::Brush::solid(color)); }
+        void drawRect(const Rect &rect, Color color) { drawRect(static_cast<const QC::Rect &>(rect), QG::Pen(color)); }
+
+        // Invalidation helpers
         void invalidate();
         void invalidateRect(const Rect &rect);
 
-        // ==================== IPainter Implementation ====================
-
-        QC::Size size() const override;
-        QC::Rect bounds() const override;
-
-        void setClipRect(const QC::Rect &rect) override;
-        void clearClipRect() override;
-        QC::Rect clipRect() const override;
-
-        void setOrigin(QC::i32 x, QC::i32 y) override;
-        QC::Point origin() const override;
-        void translate(QC::i32 dx, QC::i32 dy) override;
-
-        void setPixel(QC::i32 x, QC::i32 y, QC::Color color) override;
-        QC::Color pixel(QC::i32 x, QC::i32 y) const override;
-
-        void drawLine(QC::i32 x1, QC::i32 y1, QC::i32 x2, QC::i32 y2, const QG::Pen &pen) override;
-        void drawHLine(QC::i32 x, QC::i32 y, QC::u32 length, QC::Color color) override;
-        void drawVLine(QC::i32 x, QC::i32 y, QC::u32 length, QC::Color color) override;
-
-        void fillRect(const QC::Rect &rect, const QG::Brush &brush) override;
-        void drawRect(const QC::Rect &rect, const QG::Pen &pen) override;
-
-        void drawRaisedBorder(const QC::Rect &rect, QC::Color light, QC::Color dark, QC::u32 width = 1) override;
-        void drawSunkenBorder(const QC::Rect &rect, QC::Color light, QC::Color dark, QC::u32 width = 1) override;
-        void drawEtchedBorder(const QC::Rect &rect, QC::Color light, QC::Color dark) override;
-
-        void fillGradientV(const QC::Rect &rect, QC::Color top, QC::Color bottom) override;
-        void fillGradientH(const QC::Rect &rect, QC::Color left, QC::Color right) override;
-
-        void drawText(QC::i32 x, QC::i32 y, const char *text, QC::Color color) override;
-        void drawText(const QC::Rect &rect, const char *text, QC::Color color, const QG::TextFormat &format) override;
-        QC::Size measureText(const char *text) const override;
-
-        void blit(QC::i32 x, QC::i32 y, const QC::u32 *pixels, QC::u32 width, QC::u32 height, QC::u32 stride = 0) override;
-        void blitAlpha(QC::i32 x, QC::i32 y, const QC::u32 *pixels, QC::u32 width, QC::u32 height, QC::u32 stride = 0) override;
-
-        void clear(QC::Color color) override;
-
-        // Legacy convenience methods (call IPainter methods)
-        void fillRect(const Rect &rect, Color color) { QG::IPainter::fillRect(rect, color); }
-        void drawRect(const Rect &rect, Color color) { QG::IPainter::drawRect(rect, color); }
-
     protected:
-        // Event handlers - override in subclasses
         virtual void onMouseMove(QC::i32 x, QC::i32 y, QC::i32 deltaX, QC::i32 deltaY);
         virtual void onMouseDown(QC::i32 x, QC::i32 y, QK::Event::MouseButton button);
         virtual void onMouseUp(QC::i32 x, QC::i32 y, QK::Event::MouseButton button);
@@ -129,6 +135,9 @@ namespace QW
         virtual void onClose();
 
     private:
+        void resizeBuffer(QC::u32 width, QC::u32 height);
+        void paint();
+
         QC::u32 m_windowId;
         char m_title[256];
         Rect m_bounds;
@@ -138,10 +147,8 @@ namespace QW
         QC::u32 m_bufferWidth;
         QC::u32 m_bufferHeight;
 
-        // IPainter state
-        QC::Rect m_clipRect;
-        bool m_hasClip;
-        QC::Point m_origin;
+        QG::PainterSurface *m_painter;
+        Controls::Panel *m_root;
     };
 
 } // namespace QW

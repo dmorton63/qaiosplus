@@ -4,6 +4,7 @@
 #include "QCTypes.h"
 #include "QCLogger.h"
 #include "QCBuiltins.h"
+#include "QCString.h"
 #include "QKKernel.h"
 #include "QKMemPMM.h"
 #include "QKMemVMM.h"
@@ -22,8 +23,13 @@
 #include "QWWindow.h"
 #include "QKEventManager.h"
 #include "QKEventListener.h"
-#include "QWCtrlButton.h"
+#include "QWControls/Leaf/Button.h"
 #include "QDDesktop.h"
+#define LIMINE_API_REVISION 2
+#include "limine.h"
+#include "QFSVFS.h"
+#include "QFSFAT32.h"
+#include "QFSFile.h"
 
 // Limine requests are defined in QKBoot.asm
 
@@ -46,6 +52,7 @@ extern "C"
     extern QC::u64 limine_framebuffer_request[];
     extern QC::u64 limine_hhdm_request[];
     extern QC::u64 limine_kernel_address_request[];
+    extern QC::u64 limine_module_request[];
 }
 
 // Global HHDM offset (physical to virtual mapping)
@@ -143,6 +150,208 @@ static void serialPrint(const char *msg)
         QC::outb(0x3F8, *msg);
         ++msg;
     }
+}
+
+static void serialPrintInt(QC::i32 value)
+{
+    char buffer[16];
+    int pos = 0;
+    bool negative = value < 0;
+    QC::u32 magnitude = negative ? static_cast<QC::u32>(-value) : static_cast<QC::u32>(value);
+
+    do
+    {
+        buffer[pos++] = static_cast<char>('0' + (magnitude % 10));
+        magnitude /= 10;
+    } while (magnitude != 0 && pos < static_cast<int>(sizeof(buffer)) - 1);
+
+    if (negative && pos < static_cast<int>(sizeof(buffer)) - 1)
+    {
+        buffer[pos++] = '-';
+    }
+
+    buffer[pos] = '\0';
+
+    for (int i = 0; i < pos / 2; ++i)
+    {
+        char tmp = buffer[i];
+        buffer[i] = buffer[pos - 1 - i];
+        buffer[pos - 1 - i] = tmp;
+    }
+
+    serialPrint(buffer);
+}
+
+class RamDiskBlockDevice : public QFS::BlockDevice
+{
+public:
+    RamDiskBlockDevice(QC::u8 *base, QC::u64 size, QC::usize sectorSize)
+        : m_base(base), m_size(size), m_sectorSize(sectorSize)
+    {
+    }
+
+    QC::usize sectorSize() const override { return m_sectorSize; }
+    QC::u64 sectorCount() const override { return m_size / m_sectorSize; }
+
+    QC::Status readSector(QC::u64 sector, void *buffer) override
+    {
+        return readSectors(sector, 1, buffer);
+    }
+
+    QC::Status writeSector(QC::u64 sector, const void *buffer) override
+    {
+        return writeSectors(sector, 1, buffer);
+    }
+
+    QC::Status readSectors(QC::u64 sector, QC::usize count, void *buffer) override
+    {
+        if (!buffer)
+            return QC::Status::InvalidParam;
+
+        QC::u64 offset = sector * m_sectorSize;
+        QC::u64 bytes = static_cast<QC::u64>(count) * m_sectorSize;
+        if (offset + bytes > m_size)
+            return QC::Status::InvalidParam;
+
+        QC::String::memcpy(buffer, m_base + offset, static_cast<QC::usize>(bytes));
+        return QC::Status::Success;
+    }
+
+    QC::Status writeSectors(QC::u64 sector, QC::usize count, const void *buffer) override
+    {
+        if (!buffer)
+            return QC::Status::InvalidParam;
+
+        QC::u64 offset = sector * m_sectorSize;
+        QC::u64 bytes = static_cast<QC::u64>(count) * m_sectorSize;
+        if (offset + bytes > m_size)
+            return QC::Status::InvalidParam;
+
+        QC::String::memcpy(m_base + offset, buffer, static_cast<QC::usize>(bytes));
+        return QC::Status::Success;
+    }
+
+private:
+    QC::u8 *m_base;
+    QC::u64 m_size;
+    QC::usize m_sectorSize;
+};
+
+static RamDiskBlockDevice *g_ramdiskDevice = nullptr;
+static QFS::FAT32 *g_ramdiskFs = nullptr;
+static QFS::VFS *g_vfs = nullptr;
+static constexpr QC::usize kRamdiskSectorSize = 512;
+
+static const limine_module_response *moduleResponse()
+{
+    return reinterpret_cast<const limine_module_response *>(limine_module_request[5]);
+}
+
+static const limine_file *findRamdiskModule()
+{
+    const limine_module_response *response = moduleResponse();
+    if (!response || response->module_count == 0 || !response->modules)
+    {
+        return nullptr;
+    }
+
+    const limine_file *fallback = nullptr;
+    for (QC::u64 i = 0; i < response->module_count; ++i)
+    {
+        const limine_file *candidate = response->modules[i];
+        if (!candidate)
+            continue;
+
+        if (candidate->cmdline && QC::String::strcmp(candidate->cmdline, "ramdisk") == 0)
+        {
+            return candidate;
+        }
+
+        if (!fallback)
+        {
+            fallback = candidate;
+        }
+    }
+
+    return fallback;
+}
+
+static bool ensureVfsReady()
+{
+    if (g_vfs)
+        return true;
+
+    g_vfs = &QFS::VFS::instance();
+    g_vfs->initialize();
+    serialPrint("VFS initialized\r\n");
+    return true;
+}
+
+static bool initializeRamdiskFilesystem()
+{
+    if (g_ramdiskFs)
+        return true;
+
+    if (!ensureVfsReady())
+        return false;
+
+    const limine_file *ramdisk = findRamdiskModule();
+    if (!ramdisk)
+    {
+        serialPrint("No ramdisk module provided by Limine\r\n");
+        return false;
+    }
+
+    auto *base = reinterpret_cast<QC::u8 *>(ramdisk->address);
+    QC::u64 size = ramdisk->size;
+
+    if (!base || size == 0)
+    {
+        serialPrint("Ramdisk module is empty or null\r\n");
+        return false;
+    }
+
+    g_ramdiskDevice = new RamDiskBlockDevice(base, size, kRamdiskSectorSize);
+    g_ramdiskFs = new QFS::FAT32(g_ramdiskDevice);
+
+    QC::Status status = g_vfs->mount("/", g_ramdiskFs);
+    if (status != QC::Status::Success)
+    {
+        serialPrint("Failed to mount ramdisk filesystem\r\n");
+        return false;
+    }
+
+    serialPrint("Ramdisk mounted at /\r\n");
+    return true;
+}
+
+static void readHelloFileDemo()
+{
+    if (!g_vfs)
+        return;
+
+    QFS::File *file = g_vfs->open("/HELLO.TXT", QFS::OpenMode::Read);
+    if (!file)
+    {
+        serialPrint("Failed to open /HELLO.TXT\r\n");
+        return;
+    }
+
+    char buffer[256];
+    QC::isize bytesRead = file->read(buffer, sizeof(buffer) - 1);
+    if (bytesRead > 0)
+    {
+        buffer[bytesRead] = '\0';
+        serialPrint("/HELLO.TXT contents: ");
+        serialPrint(buffer);
+        serialPrint("\r\n");
+    }
+    else
+    {
+        serialPrint("Read returned no data for /HELLO.TXT\r\n");
+    }
+
+    g_vfs->close(file);
 }
 
 // Kernel panic
@@ -283,11 +492,11 @@ extern "C" void kernel_main(QC::u32 magic, BootInfo *bootInfo)
 
         serialPrint("  Revision: ");
         // Simple hex print
-        char hexbuf[3] = {'0' + static_cast<char>(revision % 10), '\r', '\n'};
+        char hexbuf[3] = {static_cast<char>('0' + (revision % 10)), '\r', '\n'};
         serialPrint(hexbuf);
 
         serialPrint("  Count: ");
-        hexbuf[0] = '0' + static_cast<char>(fb_count % 10);
+        hexbuf[0] = static_cast<char>('0' + (fb_count % 10));
         serialPrint(hexbuf);
 
         if (fb_count > 0)
@@ -323,6 +532,17 @@ extern "C" void kernel_main(QC::u32 magic, BootInfo *bootInfo)
                 reinterpret_cast<QC::VirtAddr>(earlyHeapBuffer),
                 sizeof(earlyHeapBuffer));
             serialPrint("Heap initialized\r\n");
+
+            serialPrint("Bringing up filesystem...\r\n");
+            if (initializeRamdiskFilesystem())
+            {
+                serialPrint("Filesystem ready\r\n");
+                readHelloFileDemo();
+            }
+            else
+            {
+                serialPrint("Filesystem initialization failed\r\n");
+            }
 
             // Initialize the event system
             QK::Event::EventManager::instance().initialize();
@@ -417,6 +637,19 @@ extern "C" void kernel_main(QC::u32 magic, BootInfo *bootInfo)
                     if (!mouse) return;
                     
                     auto &eventMgr = QK::Event::EventManager::instance();
+                    auto logClick = [&](const char *label)
+                    {
+                        serialPrint(label);
+                        serialPrint(" at (");
+                        serialPrintInt(mouse->x());
+                        serialPrint(", ");
+                        serialPrintInt(mouse->y());
+                        serialPrint(") delta (");
+                        serialPrintInt(report.x);
+                        serialPrint(", ");
+                        serialPrintInt(report.y);
+                        serialPrint(")\r\n");
+                    };
                     
                     // Post mouse move event
                     eventMgr.postMouseMove(mouse->x(), mouse->y(), report.x, report.y);
@@ -426,10 +659,10 @@ extern "C" void kernel_main(QC::u32 magic, BootInfo *bootInfo)
                     
                     // Check for button state changes
                     if (leftBtn && !prevLeftBtn) {
+                        logClick("Left click");
                         eventMgr.postMouseButton(QK::Event::Type::MouseButtonDown, 
                                                  QK::Event::MouseButton::Left,
                                                  mouse->x(), mouse->y(), QK::Event::Modifiers::None);
-                        serialPrint("Left click!\r\n");
                     }
                     if (!leftBtn && prevLeftBtn) {
                         eventMgr.postMouseButton(QK::Event::Type::MouseButtonUp,
@@ -437,6 +670,7 @@ extern "C" void kernel_main(QC::u32 magic, BootInfo *bootInfo)
                                                  mouse->x(), mouse->y(), QK::Event::Modifiers::None);
                     }
                     if (rightBtn && !prevRightBtn) {
+                        logClick("Right click");
                         eventMgr.postMouseButton(QK::Event::Type::MouseButtonDown,
                                                  QK::Event::MouseButton::Right,
                                                  mouse->x(), mouse->y(), QK::Event::Modifiers::None);
@@ -546,17 +780,7 @@ extern "C" void kernel_main(QC::u32 magic, BootInfo *bootInfo)
                 QKDrv::PS2::Keyboard::instance().poll();
 
                 // Process pending events
-                QC::usize processed = QK::Event::EventManager::instance().processEvents();
-                if (processed > 0)
-                {
-                    serialPrint("Processed events: ");
-                    char buf[16];
-                    buf[0] = '0' + (processed % 10);
-                    buf[1] = '\r';
-                    buf[2] = '\n';
-                    buf[3] = 0;
-                    serialPrint(buf);
-                }
+                QK::Event::EventManager::instance().processEvents();
 
                 // Repaint desktop and render
                 desktop.paint();

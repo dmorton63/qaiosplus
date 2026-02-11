@@ -1,10 +1,10 @@
 // QWControls ComboBox - Dropdown selection control implementation
 // Namespace: QW::Controls
 
-#include "QWCtrlComboBox.h"
-#include "QWCtrlButton.h"
-#include "QWCtrlTextBox.h"
-#include "QWCtrlListView.h"
+#include "QWControls/Composite/ComboBox.h"
+#include "QWControls/Leaf/Button.h"
+#include "QWControls/Leaf/TextBox.h"
+#include "QWControls/Composite/ListView.h"
 #include "QWWindow.h"
 #include "QCMemUtil.h"
 #include "QCString.h"

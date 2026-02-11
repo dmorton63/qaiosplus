@@ -6,6 +6,8 @@
 #include "PS2/QKDrvPS2Keyboard.h"
 #include "UHCI/QKDrvUHCI.h"
 #include "XHCI/xhci.h"
+#include "E1000/QKDrvE1000.h"
+#include "QNetStack.h"
 #include "QArchPCI.h"
 #include "QCLogger.h"
 
@@ -31,6 +33,9 @@ namespace QKDrv
 
         // Always probe PS/2 as fallback
         probePS2();
+
+        // Probe for network devices
+        probeNetwork();
 
         if (m_mouseDriver)
         {
@@ -132,6 +137,11 @@ namespace QKDrv
                     {
                         QC_LOG_INFO("QKDrv", "Using USB tablet as mouse driver");
                         m_mouseDriver = xhci->tabletDriver();
+                        if (m_mouseDriver)
+                        {
+                            QC_LOG_INFO("QKDrv", "Setting tablet bounds to %ux%u", m_screenWidth, m_screenHeight);
+                            m_mouseDriver->setBounds(0, 0, m_screenWidth - 1, m_screenHeight - 1);
+                        }
                     }
                 }
                 else
@@ -163,6 +173,35 @@ namespace QKDrv
                 else
                 {
                     delete uhci;
+                }
+            }
+        }
+    }
+
+    void Manager::probeNetwork()
+    {
+        QC_LOG_INFO("QKDrv", "Probing network controllers");
+
+        // Bring up the software network stack before handing it frames.
+        QNet::Stack::instance().initialize();
+
+        QArch::PCI &pci = QArch::PCI::instance();
+        for (QC::usize i = 0; i < pci.devices().size(); ++i)
+        {
+            QArch::PCIDevice &dev = const_cast<QArch::PCIDevice &>(pci.devices()[i]);
+            if (dev.classCode != QArch::PCIClass::Network)
+                continue;
+
+            E1000::Controller *nic = E1000::Controller::probe(&dev);
+            if (nic)
+            {
+                if (nic->initialize() == QC::Status::Success)
+                {
+                    m_controllers.push_back(nic);
+                    QC_LOG_INFO("QKDrv", "Using e1000 NIC");
+
+                    // Wire QNetwork TX -> NIC.
+                    QNet::Stack::setTransmitCallback(&E1000::Controller::transmitCallback);
                 }
             }
         }

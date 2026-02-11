@@ -3,6 +3,7 @@
 add_subdirectory(PS2)
 add_subdirectory(UHCI)
 add_subdirectory(XHCI)
+add_subdirectory(E1000)
 
 add_library(QKDrivers STATIC
     QKDrvManager.cpp
@@ -13,6 +14,7 @@ target_link_libraries(QKDrivers PUBLIC
     QKDrvPS2
     QKDrvUHCI
     QKDrvXHCI
+    QKDrvE1000
     QCommon
     QArch
 )

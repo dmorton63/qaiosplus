@@ -5,6 +5,7 @@ add_library(QCommon STATIC
     src/QCxxAbi.cpp
     src/QCMemUtil.c
     src/QCUIStyle.cpp
+    src/QCJson.cpp
 )
 
 target_include_directories(QCommon PUBLIC include)

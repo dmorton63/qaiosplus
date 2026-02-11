@@ -24,6 +24,19 @@
             "type": "shell",
             "command": "rm -rf build",
             "problemMatcher": []
+        },
+        {
+            "label": "Build ISO (includes ramdisk + desktop.json)",
+            "type": "shell",
+            "command": "./build.sh",
+            "group": "build",
+            "problemMatcher": []
+        },
+        {
+            "label": "Run QEMU (rebuild ISO first)",
+            "type": "shell",
+            "command": "./build.sh -r",
+            "problemMatcher": []
         }
     ]
 }

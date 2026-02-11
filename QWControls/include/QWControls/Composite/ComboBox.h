@@ -5,14 +5,13 @@
 
 #include "QCTypes.h"
 #include "QCVector.h"
-#include "QWCtrlBase.h"
-#include "QWCtrlPanel.h"
-#include "QWWindowManager.h"
-#include "QWWindow.h"
+#include "QWControls/Containers/Panel.h"
 #include "QKEventTypes.h"
 
 namespace QW
 {
+    class Window;
+
     namespace Controls
     {
 
