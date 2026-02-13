@@ -1,8 +1,9 @@
 # QAIOS+ Kernel
+<img width="975" height="645" alt="qaiosDesktop" src="https://github.com/user-attachments/assets/31138a6a-9323-4621-8ea2-d8f82a41f69c" />
 
 A modular x86-64 kernel with unified naming conventions, built with Limine bootloader.
 ## A Snapshot of our desktop design as it is at the moment.
-![alt text](image.png)
+
 ## Project Structure
 
 ```
