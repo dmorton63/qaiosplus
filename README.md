@@ -1,7 +1,8 @@
 # QAIOS+ Kernel
 
 A modular x86-64 kernel with unified naming conventions, built with Limine bootloader.
-
+## A Snapshot of our desktop design as it is at the moment.
+![alt text](image.png)
 ## Project Structure
 
 ```

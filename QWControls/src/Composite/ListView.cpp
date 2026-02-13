@@ -5,6 +5,7 @@
 #include "QCMemUtil.h"
 #include "QCString.h"
 #include "QWWindow.h"
+#include "QGPainter.h"
 
 namespace QW
 {
@@ -255,36 +256,36 @@ namespace QW
             m_dblClickUserData = userData;
         }
 
-        void ListView::paint()
+        void ListView::paint(const PaintContext &context)
         {
-            if (!m_window || !m_visible)
+            if (!m_visible || !context.painter)
                 return;
 
             Rect abs = absoluteBounds();
+            auto *painter = context.painter;
 
-            // Draw background
-            m_window->fillRect(abs, m_bgColor);
-            m_window->drawRect(abs, Color(128, 128, 128, 255));
+            painter->fillRect(abs, m_bgColor);
+            painter->drawRect(abs, Color(128, 128, 128, 255));
 
             QC::i32 currentY = abs.y;
 
-            // Draw header if enabled
             if (m_showHeader && m_columns.size() > 0)
             {
                 Rect headerRect = {abs.x, currentY, abs.width, m_itemHeight};
-                m_window->fillRect(headerRect, m_headerColor);
+                painter->fillRect(headerRect, m_headerColor);
 
                 QC::i32 colX = abs.x;
                 for (QC::usize i = 0; i < m_columns.size(); ++i)
                 {
-                    m_window->drawText(colX + 4, currentY + static_cast<QC::i32>(m_itemHeight / 2),
-                                       m_columns[i].header, m_textColor);
+                    painter->drawText(colX + 4,
+                                      currentY + static_cast<QC::i32>(m_itemHeight / 2),
+                                      m_columns[i].header,
+                                      m_textColor);
                     colX += static_cast<QC::i32>(m_columns[i].width);
                 }
                 currentY += static_cast<QC::i32>(m_itemHeight);
             }
 
-            // Draw visible items
             QC::usize visible = visibleItemCount();
             for (QC::usize i = 0; i < visible && (m_scrollOffset + i) < m_items.size(); ++i)
             {
@@ -293,17 +294,20 @@ namespace QW
 
                 Rect itemRect = {abs.x, currentY, abs.width, m_itemHeight};
 
-                // Draw selection background
                 if (item.selected)
                 {
-                    m_window->fillRect(itemRect, m_selColor);
-                    m_window->drawText(abs.x + 4, currentY + static_cast<QC::i32>(m_itemHeight / 2),
-                                       item.text, Color(255, 255, 255, 255));
+                    painter->fillRect(itemRect, m_selColor);
+                    painter->drawText(abs.x + 4,
+                                      currentY + static_cast<QC::i32>(m_itemHeight / 2),
+                                      item.text,
+                                      Color(255, 255, 255, 255));
                 }
                 else
                 {
-                    m_window->drawText(abs.x + 4, currentY + static_cast<QC::i32>(m_itemHeight / 2),
-                                       item.text, m_textColor);
+                    painter->drawText(abs.x + 4,
+                                      currentY + static_cast<QC::i32>(m_itemHeight / 2),
+                                      item.text,
+                                      m_textColor);
                 }
 
                 currentY += static_cast<QC::i32>(m_itemHeight);

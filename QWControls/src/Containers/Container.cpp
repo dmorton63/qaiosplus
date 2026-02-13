@@ -173,23 +173,23 @@ namespace QW
             return nullptr;
         }
 
-        void Container::paint()
+        void Container::paint(const PaintContext &context)
         {
             if (!m_visible || !m_window)
             {
                 return;
             }
 
-            paintChildren();
+            paintChildren(context);
         }
 
-        void Container::paintChildren()
+        void Container::paintChildren(const PaintContext &context)
         {
             for (QC::usize i = 0; i < m_children.size(); ++i)
             {
                 if (m_children[i]->isVisible())
                 {
-                    m_children[i]->paint();
+                    m_children[i]->paint(context);
                 }
             }
         }

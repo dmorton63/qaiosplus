@@ -92,6 +92,18 @@ limine_module_request:
     dq 0                     ; Internal module count
     dq 0                     ; Internal modules pointer
 
+; Terminal request
+align 8
+global limine_terminal_request
+limine_terminal_request:
+    dq LIMINE_COMMON_MAGIC_0
+    dq LIMINE_COMMON_MAGIC_1
+    dq 0xc8ac59310c2b0844
+    dq 0xa68d0c7265d38878
+    dq 0                     ; revision
+    dq 0                     ; response pointer
+    dq 0                     ; optional callback pointer
+    
 ; ============================================================================
 ; BSS section
 ; ============================================================================

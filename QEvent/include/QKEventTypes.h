@@ -50,6 +50,9 @@ namespace QK
             PowerStateChange = 210,
             MemoryLow = 220,
             MemoryCritical = 221,
+            ShutdownRequest = 230,
+            ShutdownPrepare = 231,
+            ShutdownNow = 232,
 
             // Window events (300-399)
             WindowCreate = 300,
@@ -227,6 +230,15 @@ namespace QK
             CustomEventData() : EventData(Type::CustomBase, Category::Custom) {}
         };
 
+        /// Shutdown lifecycle event data
+        struct ShutdownEventData : EventData
+        {
+            QC::u32 reasonCode = 0;  // Encoded source-specific reason
+            void *context = nullptr; // Optional context pointer (dialog, window, etc.)
+
+            ShutdownEventData() : EventData(Type::ShutdownRequest, Category::System) {}
+        };
+
         /// Union of all event types for efficient storage
         union EventUnion
         {
@@ -236,6 +248,7 @@ namespace QK
             TimerEventData timer;
             WindowEventData window;
             CustomEventData custom;
+            ShutdownEventData shutdown;
 
             EventUnion() : base() {}
         };
@@ -273,6 +286,9 @@ namespace QK
 
             CustomEventData &asCustom() { return data.custom; }
             const CustomEventData &asCustom() const { return data.custom; }
+
+            ShutdownEventData &asShutdown() { return data.shutdown; }
+            const ShutdownEventData &asShutdown() const { return data.shutdown; }
 
             // Check if event is of a certain category
             bool isInput() const { return hasCategory(category(), Category::Input); }

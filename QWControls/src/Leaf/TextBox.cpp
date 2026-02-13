@@ -6,6 +6,7 @@
 #include "QCMemUtil.h"
 #include "QCString.h"
 #include "QWWindow.h"
+#include "QGPainter.h"
 
 namespace QW
 {
@@ -92,8 +93,11 @@ namespace QW
                 if (m_text)
                 {
                     m_text[0] = '\0';
-                    m_textLength = 0;
                 }
+                m_textLength = 0;
+                m_cursorPos = 0;
+                clearSelection();
+                invalidate();
                 return;
             }
 
@@ -124,6 +128,7 @@ namespace QW
             m_textLength = len;
             m_cursorPos = len;
             clearSelection();
+            invalidate();
         }
 
         void TextBox::setPlaceholder(const char *placeholder)
@@ -185,57 +190,45 @@ namespace QW
             m_submitUserData = userData;
         }
 
-        void TextBox::paint()
+        void TextBox::paint(const PaintContext &context)
         {
-            if (!m_window || !m_visible)
+            if (!m_visible || !context.painter)
                 return;
 
             Rect abs = absoluteBounds();
+            auto *painter = context.painter;
 
-            // Draw background
-            m_window->fillRect(abs, m_bgColor);
-            m_window->drawRect(abs, m_borderColor);
+            // Background + border
+            painter->fillRect(abs, m_bgColor);
+            painter->drawRect(abs, m_borderColor);
 
-            // Draw text or placeholder
-            QC::i32 textX = abs.x + 4; // Small left padding
+            // Text drawing baseline (simple vertical centering)
+            QC::i32 textX = abs.x + 4; // small left padding
             QC::i32 textY = abs.y + static_cast<QC::i32>(abs.height / 2);
 
             if (m_textLength > 0)
             {
                 if (m_password)
                 {
-                    // Draw masked text (asterisks)
                     char masked[256];
                     QC::usize len = m_textLength < 255 ? m_textLength : 255;
                     for (QC::usize i = 0; i < len; ++i)
-                    {
                         masked[i] = '*';
-                    }
                     masked[len] = '\0';
-                    m_window->drawText(textX, textY, masked, m_textColor);
+                    painter->drawText(textX, textY, masked, m_textColor);
                 }
                 else
                 {
-                    m_window->drawText(textX, textY, m_text, m_textColor);
+                    painter->drawText(textX, textY, m_text, m_textColor);
                 }
             }
             else if (m_placeholder[0] != '\0')
             {
-                // Draw placeholder with dimmed color
                 Color placeholderColor(160, 160, 160, 255);
-                m_window->drawText(textX, textY, m_placeholder, placeholderColor);
+                painter->drawText(textX, textY, m_placeholder, placeholderColor);
             }
 
-            // Draw cursor if focused
-            if (m_focused)
-            {
-                // Simple cursor rendering (vertical line)
-                QC::i32 cursorX = abs.x + 4 + static_cast<QC::i32>(m_cursorPos * 8); // Assume 8px char width
-                Rect cursorRect = {cursorX, abs.y + 2, 1, abs.height - 4};
-                m_window->fillRect(cursorRect, m_textColor);
-            }
-
-            // Draw selection if any
+            // Selection highlight
             if (m_selStart != m_selEnd)
             {
                 QC::usize start = m_selStart < m_selEnd ? m_selStart : m_selEnd;
@@ -243,7 +236,15 @@ namespace QW
                 QC::i32 selX = abs.x + 4 + static_cast<QC::i32>(start * 8);
                 QC::u32 selWidth = static_cast<QC::u32>((end - start) * 8);
                 Rect selRect = {selX, abs.y + 2, selWidth, abs.height - 4};
-                m_window->fillRect(selRect, m_selectionColor);
+                painter->fillRect(selRect, m_selectionColor);
+            }
+
+            // Caret last so it stays visible atop selection
+            if (m_focused)
+            {
+                QC::i32 cursorX = abs.x + 4 + static_cast<QC::i32>(m_cursorPos * 8);
+                Rect cursorRect = {cursorX, abs.y + 2, 1, abs.height - 4};
+                painter->fillRect(cursorRect, m_textColor);
             }
         }
 

@@ -220,6 +220,25 @@ namespace QK
             postEvent(event);
         }
 
+        void EventManager::postShutdownEvent(Type type, QC::u32 reasonCode,
+                                             void *context, Priority priority)
+        {
+            if (!m_initialized)
+            {
+                return;
+            }
+
+            Event event;
+            event.data.shutdown.type = type;
+            event.data.shutdown.category = Category::System;
+            event.data.shutdown.priority = priority;
+            event.data.shutdown.timestamp = getTimestamp();
+            event.data.shutdown.reasonCode = reasonCode;
+            event.data.shutdown.context = context;
+
+            postEvent(event);
+        }
+
         // ==================== Event Processing ====================
 
         QC::usize EventManager::processEvents(QC::usize maxEvents)

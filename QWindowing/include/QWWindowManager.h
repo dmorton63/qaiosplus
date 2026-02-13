@@ -9,6 +9,7 @@
 #include "QCColor.h"
 #include "QKEventTypes.h"
 #include "QKEventListener.h"
+#include "QWStyleSystem.h"
 
 namespace QK
 {
@@ -33,7 +34,8 @@ namespace QW
     using Color = QC::Color;
     using Margins = QC::Margins;
 
-    class WindowManager : public QK::Event::IEventReceiver
+    class WindowManager : public QK::Event::IEventReceiver,
+                          public StyleSystem::IStyleListener
     {
     public:
         static WindowManager &instance();
@@ -75,6 +77,8 @@ namespace QW
         QC::usize windowCount() const { return m_windows.size(); }
         Window *windowAtIndex(QC::usize index) { return m_windows[index]; }
 
+        void onStyleChanged(const StyleSnapshot &snapshot) override;
+
     private:
         WindowManager();
         ~WindowManager();
@@ -85,6 +89,7 @@ namespace QW
         void routeMouseEvent(const QK::Event::MouseEventData &mouse);
         void routeKeyEvent(const QK::Event::KeyEventData &key);
         void postWindowEvent(QK::Event::Type type, Window *window);
+        void applyStyleToWindow(Window *window, const StyleSnapshot &snapshot);
 
         QC::u32 m_nextWindowId;
         QC::Vector<Window *> m_windows;

@@ -5,6 +5,7 @@
 #include "QWWindow.h"
 #include "QWFramebuffer.h"
 #include "QWCompositor.h"
+#include "QWStyleSystem.h"
 #include "QKEventManager.h"
 #include "QKMemHeap.h"
 #include "QCMemUtil.h"
@@ -42,6 +43,10 @@ namespace QW
         m_compositor = new Compositor(fb);
         m_compositor->initialize();
 
+        auto &styleSystem = StyleSystem::instance();
+        styleSystem.initialize();
+        styleSystem.addListener(this);
+
         // Register as event listener for input events
         auto &eventMgr = QK::Event::EventManager::instance();
         QK::Event::EventListener listener;
@@ -58,6 +63,8 @@ namespace QW
 
     void WindowManager::shutdown()
     {
+        StyleSystem::instance().removeListener(this);
+
         // Unregister from event manager
         if (m_listenerId != QK::Event::InvalidListenerId)
         {
@@ -126,6 +133,8 @@ namespace QW
         Window *window = new Window(title, bounds);
         window->setWindowId(m_nextWindowId++);
         m_windows.push_back(window);
+
+        applyStyleToWindow(window, StyleSystem::instance().currentStyle());
 
         // Post window create event
         postWindowEvent(QK::Event::Type::WindowCreate, window);
@@ -312,9 +321,16 @@ namespace QW
                 bringToFront(targetWindow);
             }
 
+            // Translate coordinates into the window's local space so controls
+            // can rely on window-relative positions for hit testing.
+            QK::Event::MouseEventData localMouse = mouse;
+            const Rect windowBounds = targetWindow->bounds();
+            localMouse.x -= windowBounds.x;
+            localMouse.y -= windowBounds.y;
+
             // Dispatch to window's onEvent
             QK::Event::Event event;
-            event.data.mouse = mouse;
+            event.data.mouse = localMouse;
             targetWindow->onEvent(event);
         }
     }
@@ -340,6 +356,26 @@ namespace QW
             window->bounds().y,
             window->bounds().width,
             window->bounds().height);
+    }
+
+    void WindowManager::applyStyleToWindow(Window *window, const StyleSnapshot &snapshot)
+    {
+        if (!window)
+            return;
+        window->setStyleSnapshot(&snapshot);
+    }
+
+    void WindowManager::onStyleChanged(const StyleSnapshot &snapshot)
+    {
+        for (QC::usize i = 0; i < m_windows.size(); ++i)
+        {
+            Window *window = m_windows[i];
+            applyStyleToWindow(window, snapshot);
+            if (window)
+            {
+                window->invalidate();
+            }
+        }
     }
 
 } // namespace QW

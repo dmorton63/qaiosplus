@@ -4,6 +4,7 @@
 #include "QFSFAT32.h"
 #include "QFSFile.h"
 #include "QFSDirectory.h"
+#include "QFSPath.h"
 #include "QKMemHeap.h"
 #include "QCLogger.h"
 #include "QCString.h"
@@ -17,7 +18,7 @@ namespace QFS
     constexpr QC::u32 FAT32_FREE = 0x00000000;
 
     FAT32::FAT32(BlockDevice *device)
-        : m_device(device), m_fatStart(0), m_dataStart(0), m_clusterSize(0), m_clusterBuffer(nullptr)
+        : m_device(device), m_fatStart(0), m_dataStart(0), m_clusterSize(0), m_totalClusters(0), m_clusterBuffer(nullptr)
     {
         QC::String::memset(&m_bootSector, 0, sizeof(m_bootSector));
     }
@@ -53,6 +54,13 @@ namespace QFS
         m_fatStart = m_bootSector.reservedSectors;
         m_dataStart = m_fatStart + (m_bootSector.fatCount * m_bootSector.sectorsPerFat32);
         m_clusterSize = m_bootSector.bytesPerSector * m_bootSector.sectorsPerCluster;
+
+        const QC::u32 totalSectors = (m_bootSector.totalSectors32 != 0) ? m_bootSector.totalSectors32 : m_bootSector.totalSectors16;
+        if (totalSectors > m_dataStart)
+        {
+            const QC::u32 dataSectors = totalSectors - m_dataStart;
+            m_totalClusters = dataSectors / m_bootSector.sectorsPerCluster;
+        }
 
         // Allocate cluster buffer
         m_clusterBuffer = static_cast<QC::u8 *>(
@@ -92,6 +100,16 @@ namespace QFS
         QC::u32 sector = clusterToSector(cluster);
         QC::usize count = m_bootSector.sectorsPerCluster;
         QC::Status status = m_device->readSectors(sector, count, m_clusterBuffer);
+        return status == QC::Status::Success;
+    }
+
+    bool FAT32::storeCluster(QC::u32 cluster)
+    {
+        if (cluster < 2)
+            return false;
+        QC::u32 sector = clusterToSector(cluster);
+        QC::usize count = m_bootSector.sectorsPerCluster;
+        QC::Status status = m_device->writeSectors(sector, count, m_clusterBuffer);
         return status == QC::Status::Success;
     }
 
@@ -185,36 +203,74 @@ namespace QFS
 
     File *FAT32::open(const char *path, OpenMode mode)
     {
-        FAT32DirEntry *entry = findEntry(path);
+        if (!path || path[0] == '\0')
+            return nullptr;
+
+        if (!(mode & OpenMode::Read) && !(mode & OpenMode::Write))
+            return nullptr;
+
+        QC::u32 parentCluster = 0;
+        QC::u32 entryIndex = 0;
+        FAT32DirEntry *entry = findEntry(path, &parentCluster, &entryIndex);
+
+        FAT32DirEntry createdEntry;
         if (!entry)
         {
-            if (mode & OpenMode::Create)
-            {
-                // TODO: Create new file
+            if (!(mode & OpenMode::Create))
                 return nullptr;
-            }
-            return nullptr;
-        }
 
-        if (!(mode & OpenMode::Read))
-        {
-            return nullptr;
+            char parentPath[256];
+            char baseName[256];
+            Path::dirname(path, parentPath, sizeof(parentPath));
+            Path::basename(path, baseName, sizeof(baseName));
+
+            if (baseName[0] == '\0')
+                return nullptr;
+
+            QC::u32 dirCluster = m_bootSector.rootCluster;
+            if (!(parentPath[0] == '/' && parentPath[1] == '\0'))
+            {
+                FAT32DirEntry *dirEntry = findEntry(parentPath);
+                if (!dirEntry || !(dirEntry->attributes & FAT32Attr::Directory))
+                    return nullptr;
+                dirCluster = entryCluster(*dirEntry);
+                if (dirCluster < 2)
+                    return nullptr;
+            }
+
+            QC::u32 freeIndex = 0;
+            if (!findFreeDirectoryEntry(dirCluster, &freeIndex))
+                return nullptr;
+
+            char fatName[11];
+            formatName(baseName, fatName);
+            QC::String::memset(&createdEntry, 0, sizeof(createdEntry));
+            QC::String::memcpy(createdEntry.name, fatName, 11);
+            createdEntry.attributes = FAT32Attr::Archive;
+            createdEntry.clusterHigh = 0;
+            createdEntry.clusterLow = 0;
+            createdEntry.size = 0;
+
+            if (!updateDirectoryEntry(dirCluster, freeIndex, createdEntry))
+                return nullptr;
+
+            parentCluster = dirCluster;
+            entryIndex = freeIndex;
+            m_entryCache = createdEntry;
+            entry = &m_entryCache;
         }
 
         if (entry->attributes & FAT32Attr::Directory)
-        {
-            return nullptr; // Can't open directory as file
-        }
+            return nullptr;
 
         QC::u32 firstCluster = entryCluster(*entry);
-        if (firstCluster < 2)
-        {
-            return nullptr;
-        }
 
         auto *handle = new FATFileHandle();
         handle->startCluster = firstCluster;
         handle->size = entry->size;
+        handle->dirCluster = parentCluster;
+        handle->dirEntryIndex = entryIndex;
+        handle->dirty = false;
 
         File *file = new File();
         file->setFileSystem(this);
@@ -223,6 +279,23 @@ namespace QFS
         file->setSize(entry->size);
         file->setPosition(0);
         file->setOpen(true);
+
+        if ((mode & OpenMode::Truncate) && (mode & OpenMode::Write))
+        {
+            if (handle->startCluster >= 2)
+                freeClusterChain(handle->startCluster);
+            handle->startCluster = 0;
+            handle->size = 0;
+            handle->dirty = true;
+            file->setSize(0);
+            file->setPosition(0);
+        }
+
+        if (mode & OpenMode::Append)
+        {
+            file->setPosition(file->size());
+        }
+
         return file;
     }
 
@@ -233,6 +306,23 @@ namespace QFS
         auto *handle = static_cast<FATFileHandle *>(file->handle());
         if (handle)
         {
+            if (handle->dirty)
+            {
+                FAT32DirEntry entryOnDisk;
+                QC::String::memset(&entryOnDisk, 0, sizeof(entryOnDisk));
+                if (loadCluster(traverseToCluster(handle->dirCluster, handle->dirEntryIndex / (m_clusterSize / sizeof(FAT32DirEntry)))))
+                {
+                    // Read the entry, update fields, then write it back.
+                    const QC::u32 entriesPerCluster = m_clusterSize / sizeof(FAT32DirEntry);
+                    const QC::u32 indexWithinCluster = handle->dirEntryIndex % entriesPerCluster;
+                    auto *entries = reinterpret_cast<FAT32DirEntry *>(m_clusterBuffer);
+                    entryOnDisk = entries[indexWithinCluster];
+                    entryOnDisk.size = static_cast<QC::u32>(handle->size);
+                    entryOnDisk.clusterHigh = static_cast<QC::u16>((handle->startCluster >> 16) & 0xFFFF);
+                    entryOnDisk.clusterLow = static_cast<QC::u16>(handle->startCluster & 0xFFFF);
+                    updateDirectoryEntry(handle->dirCluster, handle->dirEntryIndex, entryOnDisk);
+                }
+            }
             delete handle;
             file->setHandle(nullptr);
         }
@@ -290,30 +380,121 @@ namespace QFS
 
     QC::isize FAT32::write(File *file, const void *buffer, QC::usize size)
     {
-        // TODO: Implement FAT32 write
-        return -1;
+        if (!file || !buffer || size == 0)
+            return 0;
+
+        auto *handle = static_cast<FATFileHandle *>(file->handle());
+        if (!handle)
+            return -1;
+
+        QC::u64 position = file->tell();
+        if (position > handle->size)
+        {
+            // Minimal implementation: do not support sparse writes yet.
+            return -1;
+        }
+
+        const QC::u8 *src = static_cast<const QC::u8 *>(buffer);
+        QC::usize totalWritten = 0;
+
+        auto getOrAllocateClusterAt = [&](QC::u32 clusterIndex) -> QC::u32
+        {
+            if (handle->startCluster < 2)
+            {
+                QC::u32 first = allocateCluster();
+                if (first < 2)
+                    return 0;
+                handle->startCluster = first;
+                handle->dirty = true;
+            }
+
+            QC::u32 cluster = handle->startCluster;
+            for (QC::u32 i = 0; i < clusterIndex; ++i)
+            {
+                QC::u32 next = readFAT(cluster);
+                if (next >= FAT32_EOC)
+                {
+                    QC::u32 newCluster = allocateCluster();
+                    if (newCluster < 2)
+                        return 0;
+                    writeFAT(cluster, newCluster);
+                    cluster = newCluster;
+                    handle->dirty = true;
+                    continue;
+                }
+                cluster = next;
+            }
+            return cluster;
+        };
+
+        while (size > 0)
+        {
+            const QC::u32 clusterSize = m_clusterSize;
+            const QC::u32 clusterIndex = static_cast<QC::u32>(position / clusterSize);
+            const QC::u32 offset = static_cast<QC::u32>(position % clusterSize);
+
+            QC::u32 cluster = getOrAllocateClusterAt(clusterIndex);
+            if (cluster < 2)
+                break;
+
+            if (!loadCluster(cluster))
+                break;
+
+            QC::usize chunk = clusterSize - offset;
+            if (chunk > size)
+                chunk = size;
+
+            QC::String::memcpy(m_clusterBuffer + offset, src + totalWritten, chunk);
+            if (!storeCluster(cluster))
+                break;
+
+            size -= chunk;
+            totalWritten += chunk;
+            position += chunk;
+        }
+
+        if (totalWritten > 0)
+        {
+            if (position > handle->size)
+            {
+                handle->size = position;
+                handle->dirty = true;
+            }
+        }
+
+        return static_cast<QC::isize>(totalWritten);
     }
 
     Directory *FAT32::openDir(const char *path)
     {
-        FAT32DirEntry *entry = nullptr;
+        if (!path)
+            return nullptr;
 
+        QC::u32 startCluster = 0;
         if (path[0] == '/' && path[1] == '\0')
         {
-            // Root directory
-            Directory *dir = new Directory();
-            // TODO: Set up directory handle
-            return dir;
+            startCluster = m_bootSector.rootCluster;
+        }
+        else
+        {
+            FAT32DirEntry *entry = findEntry(path);
+            if (!entry || !(entry->attributes & FAT32Attr::Directory))
+                return nullptr;
+            startCluster = entryCluster(*entry);
         }
 
-        entry = findEntry(path);
-        if (!entry || !(entry->attributes & FAT32Attr::Directory))
-        {
+        if (startCluster < 2)
             return nullptr;
-        }
+
+        auto *handle = new FATDirHandle();
+        handle->startCluster = startCluster;
+        handle->currentCluster = startCluster;
+        handle->entryIndex = 0;
 
         Directory *dir = new Directory();
-        // TODO: Set up directory handle
+        dir->setFileSystem(this);
+        dir->setHandle(handle);
+        dir->setOpen(true);
         return dir;
     }
 
@@ -321,14 +502,74 @@ namespace QFS
     {
         if (!dir)
             return QC::Status::InvalidParam;
-        delete dir;
+
+        auto *handle = static_cast<FATDirHandle *>(dir->handle());
+        if (handle)
+        {
+            delete handle;
+            dir->setHandle(nullptr);
+        }
+        dir->setOpen(false);
+        dir->setFileSystem(nullptr);
         return QC::Status::Success;
     }
 
     bool FAT32::readDir(Directory *dir, DirEntry *entry)
     {
-        // TODO: Implement directory reading
+        if (!dir || !entry)
+            return false;
+
+        auto *handle = static_cast<FATDirHandle *>(dir->handle());
+        if (!handle)
+            return false;
+
+        while (handle->currentCluster >= 2 && handle->currentCluster < FAT32_BAD)
+        {
+            if (!loadCluster(handle->currentCluster))
+                return false;
+
+            const QC::u32 entriesPerCluster = m_clusterSize / sizeof(FAT32DirEntry);
+            auto *entries = reinterpret_cast<FAT32DirEntry *>(m_clusterBuffer);
+
+            while (handle->entryIndex < entriesPerCluster)
+            {
+                FAT32DirEntry &e = entries[handle->entryIndex++];
+                if (e.name[0] == 0x00)
+                    return false;
+                if (e.name[0] == 0xE5)
+                    continue;
+                if ((e.attributes & FAT32Attr::LongName) == FAT32Attr::LongName)
+                    continue;
+                if (e.attributes & FAT32Attr::VolumeId)
+                    continue;
+                if (e.name[0] == '.')
+                    continue;
+
+                parseName(e.name, entry->name);
+                entry->type = (e.attributes & FAT32Attr::Directory) ? FileType::Directory : FileType::Regular;
+                entry->size = e.size;
+                return true;
+            }
+
+            QC::u32 next = readFAT(handle->currentCluster);
+            if (next >= FAT32_EOC)
+                break;
+            handle->currentCluster = next;
+            handle->entryIndex = 0;
+        }
+
         return false;
+    }
+
+    void FAT32::rewindDir(Directory *dir)
+    {
+        if (!dir)
+            return;
+        auto *handle = static_cast<FATDirHandle *>(dir->handle());
+        if (!handle)
+            return;
+        handle->currentCluster = handle->startCluster;
+        handle->entryIndex = 0;
     }
 
     QC::Status FAT32::stat(const char *path, FileInfo *info)
@@ -353,17 +594,128 @@ namespace QFS
 
     QC::Status FAT32::createDir(const char *path)
     {
-        // TODO: Implement directory creation
-        return QC::Status::NotSupported;
+        if (!path || path[0] != '/')
+            return QC::Status::InvalidParam;
+
+        if (findEntry(path))
+            return QC::Status::Error;
+
+        char parentPath[256];
+        char baseName[256];
+        Path::dirname(path, parentPath, sizeof(parentPath));
+        Path::basename(path, baseName, sizeof(baseName));
+
+        if (baseName[0] == '\0')
+            return QC::Status::InvalidParam;
+
+        QC::u32 parentCluster = m_bootSector.rootCluster;
+        if (!(parentPath[0] == '/' && parentPath[1] == '\0'))
+        {
+            FAT32DirEntry *parentEntry = findEntry(parentPath);
+            if (!parentEntry || !(parentEntry->attributes & FAT32Attr::Directory))
+                return QC::Status::NotFound;
+            parentCluster = entryCluster(*parentEntry);
+            if (parentCluster < 2)
+                return QC::Status::NotFound;
+        }
+
+        QC::u32 freeIndex = 0;
+        if (!findFreeDirectoryEntry(parentCluster, &freeIndex))
+            return QC::Status::OutOfMemory;
+
+        QC::u32 newCluster = allocateCluster();
+        if (newCluster < 2)
+            return QC::Status::OutOfMemory;
+
+        // Initialize directory cluster: "." and ".." entries
+        QC::String::memset(m_clusterBuffer, 0, m_clusterSize);
+        auto *ents = reinterpret_cast<FAT32DirEntry *>(m_clusterBuffer);
+
+        FAT32DirEntry dot;
+        QC::String::memset(&dot, 0, sizeof(dot));
+        QC::String::memset(dot.name, ' ', 11);
+        dot.name[0] = '.';
+        dot.attributes = FAT32Attr::Directory;
+        dot.clusterHigh = static_cast<QC::u16>((newCluster >> 16) & 0xFFFF);
+        dot.clusterLow = static_cast<QC::u16>(newCluster & 0xFFFF);
+        dot.size = 0;
+        ents[0] = dot;
+
+        FAT32DirEntry dotdot;
+        QC::String::memset(&dotdot, 0, sizeof(dotdot));
+        QC::String::memset(dotdot.name, ' ', 11);
+        dotdot.name[0] = '.';
+        dotdot.name[1] = '.';
+        dotdot.attributes = FAT32Attr::Directory;
+        dotdot.clusterHigh = static_cast<QC::u16>((parentCluster >> 16) & 0xFFFF);
+        dotdot.clusterLow = static_cast<QC::u16>(parentCluster & 0xFFFF);
+        dotdot.size = 0;
+        ents[1] = dotdot;
+
+        if (!storeCluster(newCluster))
+            return QC::Status::Error;
+
+        FAT32DirEntry newEntry;
+        QC::String::memset(&newEntry, 0, sizeof(newEntry));
+        char fatName[11];
+        formatName(baseName, fatName);
+        QC::String::memcpy(newEntry.name, fatName, 11);
+        newEntry.attributes = FAT32Attr::Directory;
+        newEntry.clusterHigh = static_cast<QC::u16>((newCluster >> 16) & 0xFFFF);
+        newEntry.clusterLow = static_cast<QC::u16>(newCluster & 0xFFFF);
+        newEntry.size = 0;
+
+        if (!updateDirectoryEntry(parentCluster, freeIndex, newEntry))
+            return QC::Status::Error;
+
+        return QC::Status::Success;
     }
 
     QC::Status FAT32::remove(const char *path)
     {
-        // TODO: Implement file/directory removal
-        return QC::Status::NotSupported;
+        if (!path || path[0] != '/')
+            return QC::Status::InvalidParam;
+
+        QC::u32 parentCluster = 0;
+        QC::u32 entryIndex = 0;
+        FAT32DirEntry *entry = findEntry(path, &parentCluster, &entryIndex);
+        if (!entry)
+            return QC::Status::NotFound;
+
+        const bool isDir = (entry->attributes & FAT32Attr::Directory) != 0;
+        const QC::u32 startCluster = entryCluster(*entry);
+
+        if (isDir)
+        {
+            // Only allow removing empty directories for now.
+            auto *dir = openDir(path);
+            if (!dir)
+                return QC::Status::NotSupported;
+            DirEntry tmp;
+            bool hasEntries = false;
+            while (readDir(dir, &tmp))
+            {
+                hasEntries = true;
+                break;
+            }
+            closeDir(dir);
+            delete dir;
+            if (hasEntries)
+                return QC::Status::NotSupported;
+        }
+
+        FAT32DirEntry deleted = *entry;
+        deleted.name[0] = static_cast<char>(0xE5);
+        if (!updateDirectoryEntry(parentCluster, entryIndex, deleted))
+            return QC::Status::Error;
+
+        if (startCluster >= 2)
+            freeClusterChain(startCluster);
+
+        return QC::Status::Success;
     }
 
-    FAT32DirEntry *FAT32::findEntry(const char *path, QC::u32 *parentCluster)
+    FAT32DirEntry *FAT32::findEntry(const char *path, QC::u32 *parentCluster, QC::u32 *entryIndex)
     {
         if (!path || path[0] == '\0')
             return nullptr;
@@ -412,7 +764,8 @@ namespace QFS
             formatName(element, nameBuffer);
 
             FAT32DirEntry entry;
-            if (!iterateDirectory(currentCluster, nameBuffer, &entry))
+            QC::u32 foundIndex = 0;
+            if (!iterateDirectory(currentCluster, nameBuffer, &entry, &foundIndex))
             {
                 return nullptr;
             }
@@ -425,6 +778,8 @@ namespace QFS
             {
                 if (parentCluster)
                     *parentCluster = currentCluster;
+                if (entryIndex)
+                    *entryIndex = foundIndex;
                 m_entryCache = entry;
                 return &m_entryCache;
             }
@@ -443,6 +798,72 @@ namespace QFS
         }
 
         return nullptr;
+    }
+
+    bool FAT32::updateDirectoryEntry(QC::u32 dirStartCluster, QC::u32 entryIndex, const FAT32DirEntry &entry)
+    {
+        if (dirStartCluster < 2)
+            return false;
+
+        const QC::u32 entriesPerCluster = m_clusterSize / sizeof(FAT32DirEntry);
+        const QC::u32 clusterOffset = entryIndex / entriesPerCluster;
+        const QC::u32 indexWithinCluster = entryIndex % entriesPerCluster;
+        const QC::u32 cluster = traverseToCluster(dirStartCluster, clusterOffset);
+        if (cluster < 2 || cluster >= FAT32_BAD)
+            return false;
+
+        if (!loadCluster(cluster))
+            return false;
+        auto *entries = reinterpret_cast<FAT32DirEntry *>(m_clusterBuffer);
+        entries[indexWithinCluster] = entry;
+        return storeCluster(cluster);
+    }
+
+    bool FAT32::findFreeDirectoryEntry(QC::u32 dirStartCluster, QC::u32 *outEntryIndex)
+    {
+        if (!outEntryIndex || dirStartCluster < 2)
+            return false;
+
+        const QC::u32 entriesPerCluster = m_clusterSize / sizeof(FAT32DirEntry);
+        QC::u32 cluster = dirStartCluster;
+        QC::u32 baseIndex = 0;
+
+        while (cluster >= 2 && cluster < FAT32_BAD)
+        {
+            if (!loadCluster(cluster))
+                return false;
+
+            auto *entries = reinterpret_cast<FAT32DirEntry *>(m_clusterBuffer);
+            for (QC::u32 i = 0; i < entriesPerCluster; ++i)
+            {
+                if (entries[i].name[0] == 0x00 || entries[i].name[0] == 0xE5)
+                {
+                    *outEntryIndex = baseIndex + i;
+                    return true;
+                }
+            }
+
+            QC::u32 next = readFAT(cluster);
+            if (next >= FAT32_EOC)
+                break;
+            cluster = next;
+            baseIndex += entriesPerCluster;
+        }
+
+        // No free slots; grow the directory by allocating a new cluster.
+        QC::u32 newCluster = allocateCluster();
+        if (newCluster < 2)
+            return false;
+
+        // Link it.
+        if (cluster >= 2 && cluster < FAT32_BAD)
+        {
+            writeFAT(cluster, newCluster);
+        }
+
+        // New cluster is empty, first entry is free.
+        *outEntryIndex = baseIndex;
+        return true;
     }
 
     void FAT32::parseName(const char *fatName, char *outName)
@@ -498,7 +919,22 @@ namespace QFS
 
     QC::u32 FAT32::allocateCluster()
     {
-        // TODO: Find free cluster in FAT
+        if (m_totalClusters == 0)
+            return 0;
+
+        // Scan FAT for a free cluster.
+        for (QC::u32 cluster = 2; cluster < m_totalClusters + 2; ++cluster)
+        {
+            if (readFAT(cluster) == FAT32_FREE)
+            {
+                writeFAT(cluster, 0x0FFFFFFF);
+                // Zero out the cluster.
+                QC::String::memset(m_clusterBuffer, 0, m_clusterSize);
+                storeCluster(cluster);
+                return cluster;
+            }
+        }
+
         return 0;
     }
 

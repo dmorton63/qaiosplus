@@ -73,6 +73,11 @@ namespace QK
             void postCustomEvent(QC::u16 customType, QC::u64 param1 = 0,
                                  QC::u64 param2 = 0, void *userData = nullptr);
 
+            /// Create and post a shutdown lifecycle event
+            void postShutdownEvent(Type type, QC::u32 reasonCode,
+                                   void *context = nullptr,
+                                   Priority priority = Priority::High);
+
             // ==================== Event Processing ====================
 
             /// Process all pending events in the queue

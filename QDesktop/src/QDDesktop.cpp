@@ -2,11 +2,18 @@
 // Namespace: QD
 
 #include "QDDesktop.h"
+#include "QDColorUtils.h"
 #include "QWWindowManager.h"
 #include "QCJson.h"
 #include "QCLogger.h"
 #include "QFSVFS.h"
 #include "QFSFile.h"
+#include "QWStyleSystem.h"
+#include "QWStyleTypes.h"
+#include "QDShutdownDialog.h"
+#include "QKEventManager.h"
+#include "QKShutdownController.h"
+#include "QGPainter.h"
 
 namespace QD
 {
@@ -22,61 +29,6 @@ namespace QD
     namespace
     {
         constexpr const char *LOG_MODULE = "QDesktop";
-
-        inline QC::i32 clampChannel(QC::i32 value)
-        {
-            if (value < 0)
-                return 0;
-            if (value > 255)
-                return 255;
-            return value;
-        }
-
-        inline QW::Color blendTowards(QW::Color color, QC::u8 target, QC::u8 percent)
-        {
-            if (percent > 100)
-                percent = 100;
-
-            auto adjust = [&](QC::u8 component) -> QC::u8
-            {
-                QC::i32 delta = static_cast<QC::i32>(target) - static_cast<QC::i32>(component);
-                QC::i32 value = static_cast<QC::i32>(component) + (delta * percent + 50) / 100;
-                return static_cast<QC::u8>(clampChannel(value));
-            };
-
-            return QW::Color(adjust(color.r), adjust(color.g), adjust(color.b), color.a);
-        }
-
-        inline QW::Color lightenColor(QW::Color color, QC::u8 percent)
-        {
-            return blendTowards(color, 255, percent);
-        }
-
-        inline QW::Color darkenColor(QW::Color color, QC::u8 percent)
-        {
-            return blendTowards(color, 0, percent);
-        }
-
-        inline void applyVistaButtonStyle(QW::Controls::Button *button, QW::Color base)
-        {
-            if (!button)
-                return;
-
-            QW::Color top = lightenColor(base, 25);
-            QW::Color bottom = darkenColor(base, 60);
-            QW::Color highlightTop = lightenColor(base, 55);
-            QW::Color highlightBottom = lightenColor(base, 10);
-            QW::Color borderOuter = darkenColor(base, 70);
-            QW::Color borderInner = lightenColor(base, 70);
-            QW::Color glow = lightenColor(base, 35).withAlpha(180);
-
-            button->setVisualStyle(QW::Controls::ButtonStyle::Vista);
-            button->setVistaGradient(top, bottom);
-            button->setVistaHighlight(highlightTop, highlightBottom);
-            button->setVistaBorders(borderOuter, borderInner);
-            button->setVistaGlow(glow);
-            button->setTextColor(QW::Color(255, 255, 255, 255));
-        }
 
         inline QC::i32 parseInt(const char *s, bool *ok)
         {
@@ -121,6 +73,40 @@ namespace QD
                 ++prefix;
             }
             return true;
+        }
+
+        inline QW::ButtonRole roleForJsonButton(const char *id, const QC::JSON::Value *controlValue)
+        {
+            if (controlValue)
+            {
+                if (const QC::JSON::Value *roleValue = controlValue->find("role"))
+                {
+                    const char *roleText = roleValue->isString() ? roleValue->asString(nullptr) : nullptr;
+                    if (roleText)
+                    {
+                        QW::ButtonRole parsed;
+                        if (QW::buttonRoleFromString(roleText, &parsed))
+                        {
+                            return parsed;
+                        }
+
+                        const char *warnId = id ? id : "<unnamed>";
+                        QC_LOG_WARN(LOG_MODULE, "Unknown button role '%s' on control '%s'", roleText, warnId);
+                    }
+                }
+            }
+
+            if (id)
+            {
+                if (QC::String::strcmp(id, "shutDownButton") == 0)
+                    return QW::ButtonRole::Destructive;
+                if (QC::String::strcmp(id, "startButton") == 0)
+                    return QW::ButtonRole::Accent;
+                if (startsWith(id, "btn"))
+                    return QW::ButtonRole::Sidebar;
+            }
+
+            return QW::ButtonRole::Default;
         }
 
         inline QC::i32 clampNonNegative(QC::i32 v)
@@ -316,6 +302,7 @@ namespace QD
         {
             return (v && v->isString()) ? v->asString(nullptr) : nullptr;
         }
+
     } // namespace
 
     Desktop::Desktop()
@@ -324,17 +311,22 @@ namespace QD
           m_screenHeight(0),
           m_desktopWindow(nullptr),
           m_jsonDriven(false),
+          m_themeLoaded(false),
           m_topBar(nullptr),
           m_sidebar(nullptr),
           m_taskbar(nullptr),
+          m_jsonStartButton(nullptr),
+          m_jsonShutdownButton(nullptr),
           m_logoButton(nullptr),
           m_titleLabel(nullptr),
           m_clockLabel(nullptr),
+          m_taskbarWindowBaseX(4),
           m_selectedSidebarItem(SidebarItem::Home),
           m_taskbarWindowCount(0),
           m_hours(10),
           m_minutes(32),
-          m_terminal(nullptr)
+          m_terminal(nullptr),
+          m_shutdownDialog(nullptr)
     {
         for (QC::u8 i = 0; i < static_cast<QC::u8>(SidebarItem::Count); ++i)
         {
@@ -347,6 +339,8 @@ namespace QD
             m_taskbarEntries[i].button = nullptr;
             m_taskbarEntries[i].isActive = false;
         }
+
+        resetThemeOverrides();
     }
 
     Desktop::~Desktop()
@@ -374,10 +368,13 @@ namespace QD
             createTopBar();
             createSidebar();
             createTaskbar();
+            recomputeTaskbarWindowBase();
 
             // Apply colors based on current style
             applyColors();
         }
+
+        QK::Shutdown::Controller::instance().registerUIHandler(&Desktop::onShutdownRequested, this);
 
         m_initialized = true;
     }
@@ -400,6 +397,14 @@ namespace QD
     {
         if (!m_initialized)
             return;
+
+        QK::Shutdown::Controller::instance().registerUIHandler(nullptr, nullptr);
+
+        if (m_shutdownDialog)
+        {
+            delete m_shutdownDialog;
+            m_shutdownDialog = nullptr;
+        }
 
         if (m_jsonDriven)
         {
@@ -486,6 +491,63 @@ namespace QD
         }
     }
 
+    void Desktop::toggleTerminal()
+    {
+        if (!m_terminal)
+        {
+            m_terminal = new Terminal(this);
+        }
+
+        if (!m_terminal)
+            return;
+
+        if (m_terminal->isOpen())
+        {
+            m_terminal->close();
+        }
+        else
+        {
+            m_terminal->open();
+        }
+    }
+
+    void Desktop::recomputeTaskbarWindowBase()
+    {
+        m_taskbarWindowBaseX = 4;
+
+        if (!m_taskbar)
+            return;
+
+        auto considerControl = [&](QW::Controls::IControl *ctrl)
+        {
+            if (!ctrl)
+                return;
+
+            QW::Rect bounds = ctrl->bounds();
+            QC::i32 right = bounds.x + static_cast<QC::i32>(bounds.width) + 8;
+            if (right > m_taskbarWindowBaseX)
+            {
+                m_taskbarWindowBaseX = right;
+            }
+        };
+
+        considerControl(m_jsonStartButton);
+        considerControl(m_jsonShutdownButton);
+    }
+
+    void Desktop::showShutdownPrompt(QK::Shutdown::Reason reason)
+    {
+        if (!m_shutdownDialog)
+        {
+            m_shutdownDialog = new ShutdownDialog(this);
+        }
+
+        if (m_shutdownDialog)
+        {
+            m_shutdownDialog->open(reason);
+        }
+    }
+
     void Desktop::clearJsonDesktopState()
     {
         if (m_desktopWindow && m_desktopWindow->root())
@@ -522,12 +584,726 @@ namespace QD
         m_logoButton = nullptr;
         m_titleLabel = nullptr;
         m_clockLabel = nullptr;
+        m_jsonStartButton = nullptr;
+        m_jsonShutdownButton = nullptr;
+        m_taskbarWindowBaseX = 4;
 
         m_jsonDriven = false;
+
+        resetThemeOverrides();
+    }
+
+    void Desktop::resetThemeOverrides()
+    {
+        m_themeOverrides = ThemeOverrides{};
+        m_themeLoaded = false;
+    }
+
+    float Desktop::clamp01(float value)
+    {
+        if (value < 0.0f)
+            return 0.0f;
+        if (value > 1.0f)
+            return 1.0f;
+        return value;
+    }
+
+    QC::u8 Desktop::clampToByte(QC::u32 value)
+    {
+        return value > 255 ? 255 : static_cast<QC::u8>(value);
+    }
+
+    bool Desktop::parseColorOverride(const QC::JSON::Value *object, const char *key, ColorOverride &target)
+    {
+        if (!object || !object->isObject())
+            return false;
+        const QC::JSON::Value *value = object->find(key);
+        const char *text = stringOrNull(value);
+        if (!text)
+            return false;
+        QC::Color parsed;
+        if (!parseColorString(text, parsed))
+            return false;
+        target.set = true;
+        target.value = parsed;
+        return true;
+    }
+
+    bool Desktop::parseUnsignedOverride(const QC::JSON::Value *object, const char *key, QC::u32 &outValue)
+    {
+        if (!object || !object->isObject())
+            return false;
+        const QC::JSON::Value *value = object->find(key);
+        if (!value || !value->isNumber())
+            return false;
+        double number = value->asNumber(static_cast<double>(outValue));
+        if (number < 0.0)
+            number = 0.0;
+        outValue = static_cast<QC::u32>(number);
+        return true;
+    }
+
+    bool Desktop::parseSignedOverride(const QC::JSON::Value *object, const char *key, QC::i32 &outValue)
+    {
+        if (!object || !object->isObject())
+            return false;
+        const QC::JSON::Value *value = object->find(key);
+        if (!value || !value->isNumber())
+            return false;
+        outValue = static_cast<QC::i32>(value->asNumber(static_cast<double>(outValue)));
+        return true;
+    }
+
+    bool Desktop::parseBoolOverride(const QC::JSON::Value *object, const char *key, bool &outValue)
+    {
+        if (!object || !object->isObject())
+            return false;
+        const QC::JSON::Value *value = object->find(key);
+        if (!value || !value->isBool())
+            return false;
+        outValue = value->asBool(false);
+        return true;
+    }
+
+    bool Desktop::parseButtonStyleOverride(const QC::JSON::Value *buttons,
+                                           const char *key,
+                                           ButtonStyleOverrides &out)
+    {
+        out = ButtonStyleOverrides{};
+        if (!buttons || !buttons->isObject())
+            return false;
+
+        const QC::JSON::Value *value = buttons->find(key);
+        if (!value || !value->isObject())
+            return false;
+
+        bool changed = false;
+        changed |= parseColorOverride(value, "fillNormal", out.fillNormal);
+        changed |= parseColorOverride(value, "fillHover", out.fillHover);
+        changed |= parseColorOverride(value, "fillPressed", out.fillPressed);
+        changed |= parseColorOverride(value, "text", out.text);
+        changed |= parseColorOverride(value, "border", out.border);
+
+        bool glass = false;
+        if (parseBoolOverride(value, "glass", glass))
+        {
+            out.glassSet = true;
+            out.glass = glass;
+            changed = true;
+        }
+
+        const QC::JSON::Value *shine = value->find("shineIntensity");
+        if (shine && shine->isNumber())
+        {
+            out.shineSet = true;
+            out.shineIntensity = static_cast<float>(shine->asNumber(out.shineIntensity));
+            changed = true;
+        }
+
+        if (!changed)
+        {
+            out = ButtonStyleOverrides{};
+        }
+
+        return changed;
+    }
+
+    bool Desktop::loadThemeDefinition(const QC::JSON::Value *themeValue)
+    {
+        m_themeLoaded = false;
+        m_themeDefinition.reset();
+        if (!themeValue)
+            return false;
+
+        auto tryLoadPath = [&](const char *path) -> bool
+        {
+            if (!path || !*path)
+                return false;
+            if (!m_themeDefinition.loadFromFile(path))
+            {
+                QC_LOG_WARN(LOG_MODULE, "Failed to load theme file %s", path);
+                return false;
+            }
+            m_themeLoaded = true;
+            return true;
+        };
+
+        if (themeValue->isString())
+        {
+            const char *path = themeValue->asString(nullptr);
+            return tryLoadPath(path);
+        }
+
+        if (!themeValue->isObject())
+            return false;
+
+        if (tryLoadPath(stringOrNull(themeValue->find("file"))))
+            return true;
+        if (tryLoadPath(stringOrNull(themeValue->find("path"))))
+            return true;
+
+        if (const QC::JSON::Value *definition = themeValue->find("definition"))
+        {
+            if (definition->isObject())
+            {
+                m_themeLoaded = m_themeDefinition.loadFromJson(*definition);
+                return m_themeLoaded;
+            }
+        }
+
+        if (themeValue->find("colors") || themeValue->find("effects") || themeValue->find("animations") || themeValue->find("base"))
+        {
+            m_themeLoaded = m_themeDefinition.loadFromJson(*themeValue);
+            return m_themeLoaded;
+        }
+
+        return false;
+    }
+
+    void Desktop::applyLoadedThemeToOverrides()
+    {
+        if (!m_themeLoaded)
+            return;
+
+        const auto applyColor = [](ColorOverride &target, const QC::Color &value)
+        {
+            target.set = true;
+            target.value = value;
+        };
+
+        const ThemeColorPalette &palette = m_themeDefinition.colors();
+        applyColor(m_themeOverrides.palette.accent, palette.accentPrimary);
+        applyColor(m_themeOverrides.palette.accentLight, palette.accentSecondary);
+        applyColor(m_themeOverrides.palette.accentDark, palette.accentPrimary.darker(0.2f));
+        applyColor(m_themeOverrides.palette.panel, palette.windowBackground);
+        applyColor(m_themeOverrides.palette.panelBorder, palette.border);
+        applyColor(m_themeOverrides.palette.text, palette.textPrimary);
+        applyColor(m_themeOverrides.palette.textSecondary, palette.textSecondary);
+
+        const ThemeEffects &effects = m_themeDefinition.effects();
+        m_themeOverrides.metrics.cornerRadiusSet = true;
+        m_themeOverrides.metrics.cornerRadius = effects.border.radius;
+        m_themeOverrides.metrics.buttonCornerRadiusSet = true;
+        m_themeOverrides.metrics.buttonCornerRadius = effects.border.radius;
+        m_themeOverrides.metrics.borderWidthSet = true;
+        m_themeOverrides.metrics.borderWidth = effects.border.width;
+        applyColor(m_themeOverrides.effects.borderColor, effects.border.color);
+
+        auto &shadow = m_themeOverrides.effects.shadow;
+        shadow.offsetXSet = true;
+        shadow.offsetX = effects.shadow.offsetX;
+        shadow.offsetYSet = true;
+        shadow.offsetY = effects.shadow.offsetY;
+        shadow.blurSet = true;
+        shadow.blurRadius = effects.shadow.blurRadius;
+        applyColor(shadow.color, effects.shadow.color);
+
+        auto &glow = m_themeOverrides.effects.glow;
+        glow.radiusSet = true;
+        glow.radius = effects.glow.radius;
+        glow.intensitySet = true;
+        glow.intensity = effects.glow.intensity;
+        applyColor(glow.color, effects.glow.color);
+
+        auto assignButton = [&](QW::ButtonRole role,
+                                const QC::Color &fillNormal,
+                                const QC::Color &fillHover,
+                                const QC::Color &fillPressed,
+                                const QC::Color &textColor,
+                                const QC::Color &borderColor,
+                                bool glass)
+        {
+            auto &entry = m_themeOverrides.button[static_cast<QC::u32>(role)];
+            entry.fillNormal.set = true;
+            entry.fillNormal.value = fillNormal;
+            entry.fillHover.set = true;
+            entry.fillHover.value = fillHover;
+            entry.fillPressed.set = true;
+            entry.fillPressed.value = fillPressed;
+            entry.text.set = true;
+            entry.text.value = textColor;
+            entry.border.set = true;
+            entry.border.value = borderColor;
+            entry.glassSet = true;
+            entry.glass = glass;
+        };
+
+        assignButton(QW::ButtonRole::Default,
+                     palette.buttonNormal,
+                     palette.buttonHover,
+                     palette.buttonPressed,
+                     palette.textPrimary,
+                     palette.border,
+                     false);
+
+        assignButton(QW::ButtonRole::Sidebar,
+                     palette.buttonNormal,
+                     palette.buttonHover,
+                     palette.buttonPressed,
+                     palette.textSecondary,
+                     palette.border,
+                     false);
+
+        assignButton(QW::ButtonRole::Accent,
+                     palette.accentPrimary,
+                     palette.accentSecondary,
+                     palette.accentPrimary.darker(0.25f),
+                     palette.textPrimary,
+                     palette.accentPrimary.darker(0.3f),
+                     true);
+
+        m_themeOverrides.active = true;
+    }
+
+    void Desktop::parseThemeOverrides(const QC::JSON::Value *themeValue)
+    {
+        resetThemeOverrides();
+
+        if (!themeValue)
+            return;
+
+        if (loadThemeDefinition(themeValue))
+        {
+            applyLoadedThemeToOverrides();
+        }
+
+        if (!themeValue->isObject())
+            return;
+
+        const QC::JSON::Value *overrides = themeValue->find("overrides");
+        if (!overrides || !overrides->isObject())
+            return;
+
+        if (const QC::JSON::Value *palette = overrides->find("palette"))
+        {
+            bool changed = false;
+            changed |= parseColorOverride(palette, "accent", m_themeOverrides.palette.accent);
+            changed |= parseColorOverride(palette, "accentLight", m_themeOverrides.palette.accentLight);
+            changed |= parseColorOverride(palette, "accentDark", m_themeOverrides.palette.accentDark);
+            changed |= parseColorOverride(palette, "panel", m_themeOverrides.palette.panel);
+            changed |= parseColorOverride(palette, "panelBorder", m_themeOverrides.palette.panelBorder);
+            changed |= parseColorOverride(palette, "text", m_themeOverrides.palette.text);
+            changed |= parseColorOverride(palette, "textSecondary", m_themeOverrides.palette.textSecondary);
+            if (changed)
+                m_themeOverrides.active = true;
+        }
+
+        if (const QC::JSON::Value *metrics = overrides->find("metrics"))
+        {
+            QC::u32 value = 0;
+            if (parseUnsignedOverride(metrics, "cornerRadius", value))
+            {
+                m_themeOverrides.metrics.cornerRadiusSet = true;
+                m_themeOverrides.metrics.cornerRadius = value;
+                m_themeOverrides.active = true;
+            }
+
+            value = 0;
+            if (parseUnsignedOverride(metrics, "buttonCornerRadius", value))
+            {
+                m_themeOverrides.metrics.buttonCornerRadiusSet = true;
+                m_themeOverrides.metrics.buttonCornerRadius = value;
+                m_themeOverrides.active = true;
+            }
+
+            value = 0;
+            if (parseUnsignedOverride(metrics, "borderWidth", value))
+            {
+                m_themeOverrides.metrics.borderWidthSet = true;
+                m_themeOverrides.metrics.borderWidth = value;
+                m_themeOverrides.active = true;
+            }
+        }
+
+        if (const QC::JSON::Value *buttons = overrides->find("button"))
+        {
+            auto assign = [&](const char *key, QW::ButtonRole role)
+            {
+                if (parseButtonStyleOverride(buttons, key, m_themeOverrides.button[static_cast<QC::u32>(role)]))
+                {
+                    m_themeOverrides.active = true;
+                }
+            };
+
+            assign("sidebar", QW::ButtonRole::Sidebar);
+            assign("accent", QW::ButtonRole::Accent);
+            assign("destructive", QW::ButtonRole::Destructive);
+        }
+
+        if (const QC::JSON::Value *effects = overrides->find("effects"))
+        {
+            if (const QC::JSON::Value *border = effects->find("border"))
+            {
+                bool changed = false;
+                changed |= parseColorOverride(border, "color", m_themeOverrides.effects.borderColor);
+
+                QC::u32 value = 0;
+                if (parseUnsignedOverride(border, "width", value))
+                {
+                    m_themeOverrides.metrics.borderWidthSet = true;
+                    m_themeOverrides.metrics.borderWidth = value;
+                    changed = true;
+                }
+
+                value = 0;
+                if (parseUnsignedOverride(border, "radius", value))
+                {
+                    m_themeOverrides.metrics.cornerRadiusSet = true;
+                    m_themeOverrides.metrics.cornerRadius = value;
+                    m_themeOverrides.metrics.buttonCornerRadiusSet = true;
+                    m_themeOverrides.metrics.buttonCornerRadius = value;
+                    changed = true;
+                }
+
+                if (changed)
+                    m_themeOverrides.active = true;
+            }
+
+            if (const QC::JSON::Value *shadow = effects->find("shadow"))
+            {
+                bool changed = false;
+                QC::i32 signedValue = 0;
+                if (parseSignedOverride(shadow, "offsetX", signedValue))
+                {
+                    m_themeOverrides.effects.shadow.offsetXSet = true;
+                    m_themeOverrides.effects.shadow.offsetX = signedValue;
+                    changed = true;
+                }
+
+                signedValue = 0;
+                if (parseSignedOverride(shadow, "offsetY", signedValue))
+                {
+                    m_themeOverrides.effects.shadow.offsetYSet = true;
+                    m_themeOverrides.effects.shadow.offsetY = signedValue;
+                    changed = true;
+                }
+
+                QC::u32 blur = 0;
+                if (parseUnsignedOverride(shadow, "blur", blur))
+                {
+                    m_themeOverrides.effects.shadow.blurSet = true;
+                    m_themeOverrides.effects.shadow.blurRadius = blur;
+                    changed = true;
+                }
+
+                if (parseColorOverride(shadow, "color", m_themeOverrides.effects.shadow.color))
+                {
+                    changed = true;
+                }
+
+                if (changed)
+                    m_themeOverrides.active = true;
+            }
+
+            if (const QC::JSON::Value *glow = effects->find("glow"))
+            {
+                bool changed = false;
+                QC::u32 value = 0;
+                if (parseUnsignedOverride(glow, "radius", value))
+                {
+                    m_themeOverrides.effects.glow.radiusSet = true;
+                    m_themeOverrides.effects.glow.radius = value;
+                    changed = true;
+                }
+
+                value = 0;
+                if (parseUnsignedOverride(glow, "intensity", value))
+                {
+                    m_themeOverrides.effects.glow.intensitySet = true;
+                    m_themeOverrides.effects.glow.intensity = value;
+                    changed = true;
+                }
+
+                if (parseColorOverride(glow, "color", m_themeOverrides.effects.glow.color))
+                {
+                    changed = true;
+                }
+
+                if (changed)
+                    m_themeOverrides.active = true;
+            }
+        }
+    }
+
+    void Desktop::applyThemeOverrides(QW::StyleSnapshot &snapshot) const
+    {
+        if (!m_themeOverrides.active)
+            return;
+
+        const auto &palette = m_themeOverrides.palette;
+
+        if (palette.accent.set)
+            snapshot.palette.accent = palette.accent.value;
+
+        if (palette.panel.set)
+        {
+            snapshot.palette.panelBackground = palette.panel.value;
+            snapshot.palette.buttonFace = palette.panel.value;
+            snapshot.palette.buttonHover = palette.panel.value.lighter(0.15f);
+            snapshot.palette.buttonPressed = palette.panel.value.darker(0.2f);
+        }
+
+        if (palette.panelBorder.set)
+        {
+            snapshot.palette.buttonBorder = palette.panelBorder.value;
+            snapshot.palette.windowBorderActive = palette.panelBorder.value;
+            snapshot.palette.windowBorderInactive = palette.panelBorder.value.darker(0.3f);
+        }
+
+        if (m_themeOverrides.effects.borderColor.set)
+        {
+            const QC::Color borderColor = m_themeOverrides.effects.borderColor.value;
+            snapshot.palette.buttonBorder = borderColor;
+            snapshot.palette.windowBorderActive = borderColor;
+            snapshot.palette.windowBorderInactive = borderColor.darker(0.3f);
+        }
+
+        if (palette.text.set)
+        {
+            snapshot.palette.controlText = palette.text.value;
+
+            auto applyTextIfUnset = [&](QW::ButtonRole role, const QC::Color &color)
+            {
+                const QC::u32 idx = static_cast<QC::u32>(role);
+                if (!m_themeOverrides.button[idx].text.set)
+                {
+                    snapshot.buttonStyles[idx].text = color;
+                }
+            };
+
+            applyTextIfUnset(QW::ButtonRole::Default, palette.text.value);
+            applyTextIfUnset(QW::ButtonRole::Taskbar, palette.text.value);
+        }
+
+        if (palette.textSecondary.set)
+        {
+            const QC::u32 sidebarIdx = static_cast<QC::u32>(QW::ButtonRole::Sidebar);
+            if (!m_themeOverrides.button[sidebarIdx].text.set)
+            {
+                snapshot.buttonStyles[sidebarIdx].text = palette.textSecondary.value;
+            }
+        }
+
+        const QC::u32 accentIdx = static_cast<QC::u32>(QW::ButtonRole::Accent);
+        auto &accentOverride = m_themeOverrides.button[accentIdx];
+        auto &accentSpec = snapshot.buttonStyles[accentIdx];
+
+        if (palette.accent.set && !accentOverride.fillNormal.set)
+            accentSpec.fillNormal = palette.accent.value;
+        if (palette.accentLight.set && !accentOverride.fillHover.set)
+            accentSpec.fillHover = palette.accentLight.value;
+        if (palette.accentDark.set && !accentOverride.fillPressed.set)
+            accentSpec.fillPressed = palette.accentDark.value;
+
+        bool updateButtonCorner = false;
+        if (m_themeOverrides.metrics.cornerRadiusSet)
+        {
+            snapshot.metrics.windowCornerRadius = m_themeOverrides.metrics.cornerRadius;
+            if (!m_themeOverrides.metrics.buttonCornerRadiusSet)
+            {
+                snapshot.metrics.buttonCornerRadius = m_themeOverrides.metrics.cornerRadius;
+            }
+            updateButtonCorner = true;
+        }
+
+        if (m_themeOverrides.metrics.buttonCornerRadiusSet)
+        {
+            snapshot.metrics.buttonCornerRadius = m_themeOverrides.metrics.buttonCornerRadius;
+            updateButtonCorner = true;
+        }
+
+        bool updateBorderWidth = false;
+        if (m_themeOverrides.metrics.borderWidthSet)
+        {
+            snapshot.metrics.borderWidth = m_themeOverrides.metrics.borderWidth;
+            updateBorderWidth = true;
+        }
+
+        if (updateButtonCorner)
+        {
+            const QC::u32 radius = snapshot.metrics.buttonCornerRadius;
+            for (QC::u32 i = 0; i < static_cast<QC::u32>(QW::ButtonRole::Count); ++i)
+            {
+                snapshot.buttonStyles[i].cornerRadius = radius;
+            }
+        }
+
+        if (updateBorderWidth)
+        {
+            const QC::u32 width = snapshot.metrics.borderWidth;
+            for (QC::u32 i = 0; i < static_cast<QC::u32>(QW::ButtonRole::Count); ++i)
+            {
+                snapshot.buttonStyles[i].borderWidth = width;
+            }
+        }
+
+        const auto &shadow = m_themeOverrides.effects.shadow;
+        if (shadow.blurSet)
+        {
+            snapshot.metrics.shadowSize = shadow.blurRadius;
+            snapshot.metrics.buttonShadowSoftness = shadow.blurRadius;
+        }
+        if (shadow.offsetXSet)
+        {
+            snapshot.metrics.buttonShadowOffsetX = shadow.offsetX;
+        }
+        if (shadow.offsetYSet)
+        {
+            snapshot.metrics.buttonShadowOffsetY = shadow.offsetY;
+        }
+
+        const auto &glow = m_themeOverrides.effects.glow;
+        if (glow.radiusSet)
+        {
+            snapshot.metrics.focusRingWidth = glow.radius;
+        }
+
+        if (glow.radiusSet || glow.intensitySet || glow.color.set)
+        {
+            const auto applyGlow = [&](QW::ButtonRole role)
+            {
+                const QC::u32 idx = static_cast<QC::u32>(role);
+                auto &spec = snapshot.buttonStyles[idx];
+                QC::Color color = glow.color.set ? glow.color.value : spec.glow;
+                if (glow.intensitySet)
+                {
+                    color.a = clampToByte(glow.intensity);
+                }
+                spec.glow = color;
+                if (glow.radiusSet)
+                {
+                    spec.castsShadow = glow.radius > 0;
+                }
+            };
+
+            applyGlow(QW::ButtonRole::Accent);
+            applyGlow(QW::ButtonRole::SidebarSelected);
+            applyGlow(QW::ButtonRole::Destructive);
+            applyGlow(QW::ButtonRole::TaskbarActive);
+        }
+
+        auto applyButtonOverride = [&](QW::ButtonRole role)
+        {
+            const QC::u32 idx = static_cast<QC::u32>(role);
+            const auto &data = m_themeOverrides.button[idx];
+            if (!data.hasAny())
+                return;
+
+            auto &spec = snapshot.buttonStyles[idx];
+            if (data.fillNormal.set)
+                spec.fillNormal = data.fillNormal.value;
+            if (data.fillHover.set)
+                spec.fillHover = data.fillHover.value;
+            if (data.fillPressed.set)
+                spec.fillPressed = data.fillPressed.value;
+            if (data.text.set)
+                spec.text = data.text.value;
+            if (data.border.set)
+                spec.border = data.border.value;
+            if (data.glassSet)
+                spec.glass = data.glass;
+            if (data.shineSet)
+            {
+                const float amount = clamp01(data.shineIntensity);
+                const QC::u8 alpha = static_cast<QC::u8>(amount * 255.0f);
+                spec.glow = spec.fillNormal.withAlpha(alpha);
+                spec.overlayHover = QC::Color(255, 255, 255, alpha);
+                spec.overlayPressed = spec.fillPressed.withAlpha(static_cast<QC::u8>(alpha * 0.7f));
+            }
+        };
+
+        applyButtonOverride(QW::ButtonRole::Default);
+        applyButtonOverride(QW::ButtonRole::Sidebar);
+        applyButtonOverride(QW::ButtonRole::Accent);
+        applyButtonOverride(QW::ButtonRole::Destructive);
+    }
+
+    void Desktop::applyThemeToDesktopColors(DesktopColors &colors) const
+    {
+        if (!m_themeOverrides.active)
+            return;
+
+        const auto &palette = m_themeOverrides.palette;
+
+        if (palette.panel.set)
+        {
+            const QC::u8 topAlpha = colors.topBarBg.a;
+            const QC::u8 sidebarAlpha = colors.sidebarBg.a;
+            const QC::u8 taskbarAlpha = colors.taskbarBg.a;
+            colors.topBarBg = palette.panel.value;
+            colors.topBarBg.a = topAlpha;
+            colors.sidebarBg = palette.panel.value.darker(0.05f);
+            colors.sidebarBg.a = sidebarAlpha;
+            colors.taskbarBg = palette.panel.value.darker(0.1f);
+            colors.taskbarBg.a = taskbarAlpha;
+            colors.windowBg = palette.panel.value.lighter(0.05f);
+            colors.bgTop = palette.panel.value.lighter(0.08f);
+            colors.bgBottom = palette.panel.value.darker(0.08f);
+        }
+
+        if (palette.panelBorder.set)
+        {
+            colors.topBarDivider = palette.panelBorder.value;
+            colors.windowBorder = palette.panelBorder.value;
+        }
+
+        if (m_themeOverrides.effects.borderColor.set)
+        {
+            colors.topBarDivider = m_themeOverrides.effects.borderColor.value;
+            colors.windowBorder = m_themeOverrides.effects.borderColor.value;
+        }
+
+        if (palette.text.set)
+        {
+            colors.topBarText = palette.text.value;
+            colors.taskbarText = palette.text.value;
+            colors.windowTitleText = palette.text.value;
+        }
+
+        if (palette.textSecondary.set)
+        {
+            colors.sidebarText = palette.textSecondary.value;
+        }
+
+        if (palette.accent.set)
+        {
+            colors.sidebarSelected = palette.accent.value;
+            colors.windowBorder = palette.accent.value;
+            QC::Color accentActive = palette.accent.value;
+            accentActive.a = colors.taskbarActiveWindow.a;
+            colors.taskbarActiveWindow = accentActive;
+        }
+
+        if (palette.accentLight.set)
+        {
+            QC::Color sidebarHover = palette.accentLight.value;
+            sidebarHover.a = colors.sidebarHover.a;
+            colors.sidebarHover = sidebarHover;
+
+            QC::Color taskbarHover = palette.accentLight.value;
+            taskbarHover.a = colors.taskbarHover.a;
+            colors.taskbarHover = taskbarHover;
+        }
+
+        if (palette.accentDark.set)
+        {
+            colors.windowTitleBg = palette.accentDark.value;
+        }
+
+        if (m_themeOverrides.effects.shadow.color.set)
+        {
+            colors.windowShadow = m_themeOverrides.effects.shadow.color.value;
+        }
+        else if (m_themeOverrides.effects.shadow.blurSet && m_themeOverrides.effects.shadow.blurRadius == 0)
+        {
+            colors.windowShadow.a = 0;
+        }
     }
 
     bool Desktop::tryInitializeFromJson()
     {
+        resetThemeOverrides();
+
         // NOTE: Our FAT32 layer currently does not implement Long File Name (LFN) entries.
         // build.sh copies project-root desktop.json into the ramdisk as an 8.3 name: /DESKTOP.JSN
         // We try both paths for convenience.
@@ -676,18 +1452,16 @@ namespace QD
                 const char *text = stringOrNull(controlValue->find("text"));
                 auto *button = new QW::Controls::Button(m_desktopWindow, text ? text : "", bounds);
 
-                if (const char *style = stringOrNull(controlValue->find("style")))
-                {
-                    if (QC::String::strcmp(style, "vista") == 0)
-                    {
-                        applyVistaButtonStyle(button, accent());
-                    }
-                }
+                button->setRole(roleForJsonButton(id, controlValue));
 
                 // Wire up known desktop actions.
                 if (id && QC::String::strcmp(id, "btnTerminal") == 0)
                 {
                     button->setClickHandler(onJsonTerminalClick, this);
+                }
+                else if (id && QC::String::strcmp(id, "shutDownButton") == 0)
+                {
+                    button->setClickHandler(onJsonShutdownClick, this);
                 }
 
                 created = button;
@@ -729,6 +1503,11 @@ namespace QD
                 if (!m_clockLabel && QC::String::strcmp(id, "clockLabel") == 0)
                     m_clockLabel = static_cast<QW::Controls::Label *>(created);
                 // (logoButton is optional; not present in current desktop.json)
+
+                if (!m_jsonStartButton && QC::String::strcmp(id, "startButton") == 0)
+                    m_jsonStartButton = static_cast<QW::Controls::Button *>(created);
+                if (!m_jsonShutdownButton && QC::String::strcmp(id, "shutDownButton") == 0)
+                    m_jsonShutdownButton = static_cast<QW::Controls::Button *>(created);
             }
 
             // Recurse children for panels
@@ -759,6 +1538,15 @@ namespace QD
             return false;
         }
 
+        recomputeTaskbarWindowBase();
+
+        parseThemeOverrides(desktop->find("theme"));
+
+        DesktopColors colors = currentColors();
+        applyAccent(colors);
+        applyThemeToDesktopColors(colors);
+        publishStyleSnapshot(colors);
+
         QC_LOG_INFO(LOG_MODULE, "Desktop initialized from /desktop.json (%u controls)\n", static_cast<unsigned>(m_jsonControls.size()));
         return true;
     }
@@ -779,7 +1567,7 @@ namespace QD
         // Logo button (left)
         QW::Rect logoBounds = {8, 6, 20, 20};
         m_logoButton = new QW::Controls::Button(m_desktopWindow, "Q", logoBounds);
-        m_logoButton->setVisualStyle(QW::Controls::ButtonStyle::Vista);
+        m_logoButton->setRole(QW::ButtonRole::Accent);
         m_topBar->addChild(m_logoButton);
 
         // Title label (center-ish)
@@ -836,8 +1624,11 @@ namespace QD
             m_sidebarButtons[i] = new QW::Controls::Button(m_desktopWindow, SIDEBAR_LABELS[i], btnBounds);
             m_sidebarButtons[i]->setId(i + 100); // Use ID to identify which button
             m_sidebarButtons[i]->setClickHandler(onSidebarClick, this);
+            m_sidebarButtons[i]->setRole(QW::ButtonRole::Sidebar);
             m_sidebar->addChild(m_sidebarButtons[i]);
         }
+
+        updateSidebarButtonRoles();
     }
 
     void Desktop::createTaskbar()
@@ -904,6 +1695,7 @@ namespace QD
     {
         DesktopColors colors = currentColors();
         applyAccent(colors);
+        applyThemeToDesktopColors(colors);
 
         // Apply to panels
         if (m_topBar)
@@ -921,25 +1713,6 @@ namespace QD
             m_taskbar->setBackgroundColor(colors.taskbarBg);
         }
 
-        // Apply to buttons
-        for (QC::u8 i = 0; i < static_cast<QC::u8>(SidebarItem::Count); ++i)
-        {
-            if (m_sidebarButtons[i])
-            {
-                if (static_cast<SidebarItem>(i) == m_selectedSidebarItem)
-                {
-                    applyVistaButtonStyle(m_sidebarButtons[i], colors.sidebarSelected);
-                }
-                else
-                {
-                    m_sidebarButtons[i]->setVisualStyle(QW::Controls::ButtonStyle::Flat);
-                    m_sidebarButtons[i]->setBackgroundColor(colors.sidebarBg);
-                    m_sidebarButtons[i]->setHoverColor(colors.sidebarHover);
-                    m_sidebarButtons[i]->setTextColor(colors.sidebarText);
-                }
-            }
-        }
-
         // Apply to labels
         if (m_titleLabel)
         {
@@ -955,7 +1728,54 @@ namespace QD
 
         if (m_logoButton)
         {
-            applyVistaButtonStyle(m_logoButton, accent());
+            m_logoButton->setRole(QW::ButtonRole::Accent);
+        }
+
+        updateSidebarButtonRoles();
+
+        publishStyleSnapshot(colors);
+    }
+
+    void Desktop::publishStyleSnapshot(const DesktopColors &colors)
+    {
+        QW::StyleSnapshot::VistaThemeConfig config;
+        config.windowBackground = colors.windowBg;
+        config.windowBorder = colors.windowBorder;
+        config.sidebarBackground = colors.sidebarBg;
+        config.sidebarHover = colors.sidebarHover;
+        config.sidebarSelected = colors.sidebarSelected;
+        config.sidebarText = colors.sidebarText;
+        config.topBarDivider = colors.topBarDivider;
+        config.taskbarBackground = colors.taskbarBg;
+        config.taskbarHover = colors.taskbarHover;
+        config.taskbarText = colors.taskbarText;
+        config.taskbarActiveWindow = colors.taskbarActiveWindow;
+        config.desktopBackgroundTop = colors.bgTop;
+        config.desktopBackgroundBottom = colors.bgBottom;
+        config.windowShadow = colors.windowShadow;
+        config.accent = accent();
+
+        QW::StyleSnapshot snapshot = QW::StyleSnapshot::makeVista(config);
+        applyThemeOverrides(snapshot);
+        QW::StyleSystem::instance().setStyle(snapshot);
+    }
+
+    void Desktop::updateSidebarButtonRoles()
+    {
+        for (QC::u8 i = 0; i < static_cast<QC::u8>(SidebarItem::Count); ++i)
+        {
+            auto *button = m_sidebarButtons[i];
+            if (!button)
+                continue;
+
+            SidebarItem item = static_cast<SidebarItem>(i);
+            QW::ButtonRole role = (item == SidebarItem::Power) ? QW::ButtonRole::Destructive
+                                                               : QW::ButtonRole::Sidebar;
+            if (item == m_selectedSidebarItem)
+            {
+                role = QW::ButtonRole::SidebarSelected;
+            }
+            button->setRole(role);
         }
     }
 
@@ -975,10 +1795,8 @@ namespace QD
 
         if (m_clockLabel)
         {
-            // Format as HH:MM (simple, no AM/PM for now)
             char timeStr[16];
             QC::u32 displayHour = m_hours;
-            // Simple format
             timeStr[0] = '0' + (displayHour / 10);
             timeStr[1] = '0' + (displayHour % 10);
             timeStr[2] = ':';
@@ -997,7 +1815,6 @@ namespace QD
             m_titleLabel->setText(title ? title : "QAIOS+ Desktop");
         }
     }
-
     void Desktop::addTaskbarWindow(QC::u32 windowId, const char *title)
     {
         if (m_taskbarWindowCount >= MAX_TASKBAR_WINDOWS || !m_taskbar)
@@ -1006,7 +1823,7 @@ namespace QD
         // Create button for this window
         QC::u32 buttonWidth = 140;
         QC::u32 buttonHeight = 32;
-        QC::i32 x = static_cast<QC::i32>(4 + m_taskbarWindowCount * (buttonWidth + 4));
+        QC::i32 x = static_cast<QC::i32>(m_taskbarWindowBaseX + m_taskbarWindowCount * (buttonWidth + 4));
         QC::i32 y = static_cast<QC::i32>((TASKBAR_HEIGHT - buttonHeight) / 2);
 
         QW::Rect btnBounds = {x, y, buttonWidth, buttonHeight};
@@ -1014,11 +1831,7 @@ namespace QD
         auto *btn = new QW::Controls::Button(m_desktopWindow, title ? title : "Window", btnBounds);
         btn->setId(windowId);
         btn->setClickHandler(onTaskbarClick, this);
-
-        DesktopColors colors = currentColors();
-        btn->setBackgroundColor(colors.taskbarBg);
-        btn->setHoverColor(colors.taskbarHover);
-        btn->setTextColor(colors.taskbarText);
+        btn->setRole(QW::ButtonRole::Taskbar);
 
         m_taskbar->addChild(btn);
 
@@ -1059,7 +1872,7 @@ namespace QD
                     {
                         QC::u32 buttonWidth = 140;
                         QC::u32 buttonHeight = 32;
-                        QC::i32 x = static_cast<QC::i32>(4 + j * (buttonWidth + 4));
+                        QC::i32 x = static_cast<QC::i32>(m_taskbarWindowBaseX + j * (buttonWidth + 4));
                         QC::i32 y = static_cast<QC::i32>((TASKBAR_HEIGHT - buttonHeight) / 2);
                         m_taskbarEntries[j].button->setBounds({x, y, buttonWidth, buttonHeight});
                     }
@@ -1072,9 +1885,6 @@ namespace QD
 
     void Desktop::setActiveTaskbarWindow(QC::u32 windowId)
     {
-        DesktopColors colors = currentColors();
-        applyAccent(colors);
-
         for (QC::u32 i = 0; i < m_taskbarWindowCount; ++i)
         {
             bool isActive = (m_taskbarEntries[i].windowId == windowId);
@@ -1082,14 +1892,8 @@ namespace QD
 
             if (m_taskbarEntries[i].button)
             {
-                if (isActive)
-                {
-                    m_taskbarEntries[i].button->setBackgroundColor(colors.taskbarActiveWindow);
-                }
-                else
-                {
-                    m_taskbarEntries[i].button->setBackgroundColor(colors.taskbarBg);
-                }
+                m_taskbarEntries[i].button->setRole(isActive ? QW::ButtonRole::TaskbarActive
+                                                             : QW::ButtonRole::Taskbar);
             }
         }
     }
@@ -1104,23 +1908,28 @@ namespace QD
         // Paint background gradient
         paintBackground();
 
+        QW::Controls::PaintContext paintContext{};
+        paintContext.window = m_desktopWindow;
+        paintContext.styleRenderer = m_desktopWindow ? m_desktopWindow->styleRenderer() : nullptr;
+        paintContext.painter = m_desktopWindow ? m_desktopWindow->painter() : nullptr;
+
         if (m_jsonDriven)
         {
             for (QC::usize i = 0; i < m_jsonRootControls.size(); ++i)
             {
                 if (m_jsonRootControls[i])
-                    m_jsonRootControls[i]->paint();
+                    m_jsonRootControls[i]->paint(paintContext);
             }
             return;
         }
 
         // Paint panels (they paint their children)
         if (m_topBar)
-            m_topBar->paint();
+            m_topBar->paint(paintContext);
         if (m_sidebar)
-            m_sidebar->paint();
+            m_sidebar->paint(paintContext);
         if (m_taskbar)
-            m_taskbar->paint();
+            m_taskbar->paint(paintContext);
     }
 
     void Desktop::paintBackground()
@@ -1128,22 +1937,22 @@ namespace QD
         if (!m_desktopWindow)
             return;
 
-        DesktopColors colors = currentColors();
+        const auto &style = QW::StyleSystem::instance().currentStyle();
+        QW::Color top = style.palette.desktopBackgroundTop;
+        QW::Color bottom = style.palette.desktopBackgroundBottom;
 
-        // Paint vertical gradient
-        for (QC::u32 y = 0; y < m_screenHeight; ++y)
+        QW::Rect bounds = {0, 0, m_screenWidth, m_screenHeight};
+        QG::IPainter *painter = m_desktopWindow->painter();
+        if (!painter)
+            return;
+
+        if (top == bottom)
         {
-            QC::u32 t = (y * 255) / m_screenHeight;
-            QC::u32 invT = 255 - t;
-
-            QW::Color lineColor;
-            lineColor.r = static_cast<QC::u8>((colors.bgTop.r * invT + colors.bgBottom.r * t) / 255);
-            lineColor.g = static_cast<QC::u8>((colors.bgTop.g * invT + colors.bgBottom.g * t) / 255);
-            lineColor.b = static_cast<QC::u8>((colors.bgTop.b * invT + colors.bgBottom.b * t) / 255);
-            lineColor.a = 0xFF;
-
-            QW::Rect line = {0, static_cast<QC::i32>(y), m_screenWidth, 1};
-            m_desktopWindow->fillRect(line, lineColor);
+            painter->fillRect(bounds, top);
+        }
+        else
+        {
+            painter->fillGradientV(bounds, top, bottom);
         }
     }
 
@@ -1163,30 +1972,27 @@ namespace QD
 
             if (desktop->m_selectedSidebarItem == SidebarItem::Terminal)
             {
-                desktop->openTerminal();
+                desktop->toggleTerminal();
             }
-
-            // Update button colors to show selection
-            DesktopColors colors = currentColors();
-            applyAccent(colors);
-
-            for (QC::u8 i = 0; i < static_cast<QC::u8>(SidebarItem::Count); ++i)
+            else if (desktop->m_selectedSidebarItem == SidebarItem::Power)
             {
-                if (desktop->m_sidebarButtons[i])
-                {
-                    if (i == id - 100)
-                    {
-                        desktop->m_sidebarButtons[i]->setBackgroundColor(colors.sidebarSelected);
-                        desktop->m_sidebarButtons[i]->setTextColor(QW::Color(255, 255, 255, 255));
-                    }
-                    else
-                    {
-                        desktop->m_sidebarButtons[i]->setBackgroundColor(colors.sidebarBg);
-                        desktop->m_sidebarButtons[i]->setTextColor(colors.sidebarText);
-                    }
-                }
+                QK::Event::EventManager::instance().postShutdownEvent(
+                    QK::Event::Type::ShutdownRequest,
+                    static_cast<QC::u32>(QK::Shutdown::Reason::SidebarPowerButton));
             }
+
+            desktop->updateSidebarButtonRoles();
         }
+    }
+
+    bool Desktop::onShutdownRequested(QK::Shutdown::Reason reason, void *userData)
+    {
+        Desktop *desktop = static_cast<Desktop *>(userData);
+        if (!desktop)
+            return false;
+
+        desktop->showShutdownPrompt(reason);
+        return true;
     }
 
     void Desktop::onJsonTerminalClick(QW::Controls::Button *button, void *userData)
@@ -1196,7 +2002,17 @@ namespace QD
             return;
 
         Desktop *desktop = static_cast<Desktop *>(userData);
-        desktop->openTerminal();
+        desktop->toggleTerminal();
+    }
+
+    void Desktop::onJsonShutdownClick(QW::Controls::Button *button, void *userData)
+    {
+        (void)button;
+        (void)userData;
+
+        QK::Event::EventManager::instance().postShutdownEvent(
+            QK::Event::Type::ShutdownRequest,
+            static_cast<QC::u32>(QK::Shutdown::Reason::UserRequest));
     }
 
     void Desktop::onTaskbarClick(QW::Controls::Button *button, void *userData)

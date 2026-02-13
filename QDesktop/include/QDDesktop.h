@@ -26,18 +26,38 @@
 #include "QCGeometry.h"
 #include "QCUIStyle.h"
 #include "QWWindow.h"
+#include "QWStyleTypes.h"
 #include "QWControls/Containers/Panel.h"
 #include "QWControls/Leaf/Button.h"
 #include "QWControls/Leaf/Label.h"
 #include "QWInterfaces/IControl.h"
 #include "QCVector.h"
 #include "QDAccent.h"
+#include "QDTheme.h"
 #include "QDTerminal.h"
+
+namespace QK
+{
+    namespace Shutdown
+    {
+        enum class Reason : QC::u8;
+    }
+}
+
+namespace QC
+{
+    namespace JSON
+    {
+        class Value;
+    }
+}
 
 namespace QD
 {
     using QC::Rect;
     using QC::Size;
+
+    class ShutdownDialog;
 
     // Layout constants
     constexpr QC::u32 TOP_BAR_HEIGHT = 32;
@@ -133,20 +153,31 @@ namespace QD
         bool tryInitializeFromJson();
 
         void clearJsonDesktopState();
+        void resetThemeOverrides();
+        void parseThemeOverrides(const QC::JSON::Value *themeValue);
 
         void createTopBar();
         void createSidebar();
         void createTaskbar();
         void updateLayout();
         void applyColors();
+        void publishStyleSnapshot(const DesktopColors &colors);
+        void applyThemeOverrides(QW::StyleSnapshot &snapshot) const;
+        void applyThemeToDesktopColors(DesktopColors &colors) const;
+        void updateSidebarButtonRoles();
 
         void openTerminal();
+        void toggleTerminal();
+        void recomputeTaskbarWindowBase();
+        void showShutdownPrompt(QK::Shutdown::Reason reason);
 
         // Sidebar button click handler
         static void onSidebarClick(QW::Controls::Button *button, void *userData);
+        static bool onShutdownRequested(QK::Shutdown::Reason reason, void *userData);
 
         // JSON desktop action handlers
         static void onJsonTerminalClick(QW::Controls::Button *button, void *userData);
+        static void onJsonShutdownClick(QW::Controls::Button *button, void *userData);
 
         // Taskbar button click handler
         static void onTaskbarClick(QW::Controls::Button *button, void *userData);
@@ -162,15 +193,117 @@ namespace QD
         QC::Vector<QW::Controls::IControl *> m_jsonControls;
         QC::Vector<QW::Controls::IControl *> m_jsonRootControls;
 
+        struct ColorOverride
+        {
+            bool set = false;
+            QC::Color value;
+        };
+
+        struct PaletteOverrides
+        {
+            ColorOverride accent;
+            ColorOverride accentLight;
+            ColorOverride accentDark;
+            ColorOverride panel;
+            ColorOverride panelBorder;
+            ColorOverride text;
+            ColorOverride textSecondary;
+        };
+
+        struct MetricsOverrides
+        {
+            bool cornerRadiusSet = false;
+            QC::u32 cornerRadius = 0;
+            bool buttonCornerRadiusSet = false;
+            QC::u32 buttonCornerRadius = 0;
+            bool borderWidthSet = false;
+            QC::u32 borderWidth = 0;
+        };
+
+        struct ButtonStyleOverrides
+        {
+            ColorOverride fillNormal;
+            ColorOverride fillHover;
+            ColorOverride fillPressed;
+            ColorOverride text;
+            ColorOverride border;
+            bool glassSet = false;
+            bool glass = false;
+            bool shineSet = false;
+            float shineIntensity = 0.0f;
+            bool hasAny() const
+            {
+                return fillNormal.set || fillHover.set || fillPressed.set || text.set || border.set || glassSet || shineSet;
+            }
+        };
+
+        struct ShadowOverrides
+        {
+            bool offsetXSet = false;
+            QC::i32 offsetX = 0;
+            bool offsetYSet = false;
+            QC::i32 offsetY = 0;
+            bool blurSet = false;
+            QC::u32 blurRadius = 0;
+            ColorOverride color;
+        };
+
+        struct GlowOverrides
+        {
+            bool radiusSet = false;
+            QC::u32 radius = 0;
+            bool intensitySet = false;
+            QC::u32 intensity = 0;
+            ColorOverride color;
+        };
+
+        struct EffectsOverrides
+        {
+            ColorOverride borderColor;
+            ShadowOverrides shadow;
+            GlowOverrides glow;
+        };
+
+        struct ThemeOverrides
+        {
+            PaletteOverrides palette;
+            MetricsOverrides metrics;
+            ButtonStyleOverrides button[static_cast<QC::u32>(QW::ButtonRole::Count)];
+            EffectsOverrides effects;
+            bool active = false;
+        };
+
+        ThemeOverrides m_themeOverrides;
+        Theme m_themeDefinition;
+        bool m_themeLoaded;
+
+        bool loadThemeDefinition(const QC::JSON::Value *themeValue);
+        void applyLoadedThemeToOverrides();
+
+        static float clamp01(float value);
+        static QC::u8 clampToByte(QC::u32 value);
+        static bool parseColorOverride(const QC::JSON::Value *object, const char *key, ColorOverride &target);
+        static bool parseUnsignedOverride(const QC::JSON::Value *object, const char *key, QC::u32 &outValue);
+        static bool parseSignedOverride(const QC::JSON::Value *object, const char *key, QC::i32 &outValue);
+        static bool parseBoolOverride(const QC::JSON::Value *object, const char *key, bool &outValue);
+        static bool parseButtonStyleOverride(const QC::JSON::Value *buttons, const char *key, ButtonStyleOverrides &out);
+
         // Panels
         QW::Controls::Panel *m_topBar;
         QW::Controls::Panel *m_sidebar;
         QW::Controls::Panel *m_taskbar;
 
+        // JSON-specific buttons we track for layout offsets
+        QW::Controls::Button *m_jsonStartButton;
+        QW::Controls::Button *m_jsonShutdownButton;
+
         // Top bar controls
         QW::Controls::Button *m_logoButton;
         QW::Controls::Label *m_titleLabel;
         QW::Controls::Label *m_clockLabel;
+
+        // Dynamic taskbar layout helpers
+        QC::i32 m_taskbarWindowBaseX;
 
         // Sidebar buttons
         QW::Controls::Button *m_sidebarButtons[static_cast<QC::u8>(SidebarItem::Count)];
@@ -191,6 +324,7 @@ namespace QD
         QC::u32 m_minutes;
 
         Terminal *m_terminal;
+        class ShutdownDialog *m_shutdownDialog;
     };
 
 } // namespace QD

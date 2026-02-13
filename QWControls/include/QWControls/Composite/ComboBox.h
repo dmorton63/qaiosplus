@@ -103,7 +103,7 @@ namespace QW
             void setTextColor(Color color);
 
             Color dropdownBackgroundColor() const { return m_dropdownBgColor; }
-            void setDropdownBackgroundColor(Color color) { m_dropdownBgColor = color; }
+            void setDropdownBackgroundColor(Color color);
 
             /// Maximum visible items in dropdown
             QC::u32 maxDropdownItems() const { return m_maxDropdownItems; }
@@ -122,7 +122,7 @@ namespace QW
 
             // ==================== Rendering ====================
 
-            void paint() override;
+            void paint(const PaintContext &context) override;
 
             // ==================== Event Handlers ====================
 

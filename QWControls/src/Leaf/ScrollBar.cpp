@@ -3,6 +3,7 @@
 
 #include "QWControls/Leaf/ScrollBar.h"
 #include "QWWindow.h"
+#include "QGPainter.h"
 
 namespace QW
 {
@@ -108,40 +109,35 @@ namespace QW
             m_changeUserData = userData;
         }
 
-        void ScrollBar::paint()
+        void ScrollBar::paint(const PaintContext &context)
         {
-            if (!m_window || !m_visible)
+            if (!m_visible || !context.painter)
                 return;
 
             Rect abs = absoluteBounds();
+            auto *painter = context.painter;
 
-            // Draw background
-            m_window->fillRect(abs, m_bgColor);
+            painter->fillRect(abs, m_bgColor);
 
-            // Draw track
             Rect trackRect = calculateTrackRect();
-            m_window->fillRect(trackRect, m_trackColor);
+            painter->fillRect(trackRect, m_trackColor);
 
-            // Draw arrows
             Rect arrowUp = calculateArrowUpRect();
             Rect arrowDown = calculateArrowDownRect();
-            m_window->fillRect(arrowUp, m_bgColor);
-            m_window->fillRect(arrowDown, m_bgColor);
-            m_window->drawRect(arrowUp, m_arrowColor);
-            m_window->drawRect(arrowDown, m_arrowColor);
+            painter->fillRect(arrowUp, m_bgColor);
+            painter->fillRect(arrowDown, m_bgColor);
+            painter->drawRect(arrowUp, m_arrowColor);
+            painter->drawRect(arrowDown, m_arrowColor);
 
-            // Draw thumb
             Rect thumbRect = calculateThumbRect();
             Color thumbDrawColor = m_thumbColor;
             if (m_dragging || m_pressedArea == HitArea::Thumb)
-            {
                 thumbDrawColor = Color(150, 150, 150, 255);
-            }
-            m_window->fillRect(thumbRect, thumbDrawColor);
-            m_window->drawRect(thumbRect, m_arrowColor);
 
-            // Draw border
-            m_window->drawRect(abs, Color(160, 160, 160, 255));
+            painter->fillRect(thumbRect, thumbDrawColor);
+            painter->drawRect(thumbRect, m_arrowColor);
+
+            painter->drawRect(abs, Color(160, 160, 160, 255));
         }
 
         bool ScrollBar::onMouseMove(QC::i32 x, QC::i32 y, QC::i32 deltaX, QC::i32 deltaY)

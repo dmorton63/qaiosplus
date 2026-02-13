@@ -73,6 +73,9 @@ namespace QW
             Color arrowColor() const { return m_arrowColor; }
             void setArrowColor(Color color) { m_arrowColor = color; }
 
+            Color backgroundColor() const { return m_bgColor; }
+            void setBackgroundColor(Color color) { m_bgColor = color; }
+
             /// Minimum thumb size in pixels
             QC::u32 minThumbSize() const { return m_minThumbSize; }
             void setMinThumbSize(QC::u32 size) { m_minThumbSize = size; }
@@ -83,7 +86,7 @@ namespace QW
 
             // ==================== Rendering ====================
 
-            void paint() override;
+            void paint(const PaintContext &context) override;
 
             // ==================== Event Handlers ====================
 
@@ -129,6 +132,7 @@ namespace QW
             Color m_trackColor;
             Color m_thumbColor;
             Color m_arrowColor;
+            Color m_bgColor;
 
             ScrollChangeHandler m_changeHandler;
             void *m_changeUserData;

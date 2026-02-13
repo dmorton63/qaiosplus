@@ -15,6 +15,7 @@ namespace QW::Controls
     class Label;
     class TextBox;
     class Panel;
+    class Button;
 }
 
 namespace QD
@@ -30,11 +31,13 @@ namespace QD
 
         void open();
         bool isOpen() const { return m_window != nullptr; }
+        void close();
 
         void focus();
 
     private:
         static void onSubmit(QW::Controls::TextBox *textBox, void *userData);
+        static void onCloseClick(QW::Controls::Button *button, void *userData);
 
         void appendLine(const char *line);
         void executeLine(const char *line);

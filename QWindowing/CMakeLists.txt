@@ -2,8 +2,13 @@ add_library(QWindowing STATIC
     src/QWWindow.cpp
     src/QWWindowManager.cpp
     src/QWFramebuffer.cpp
+    src/QWFramebufferBackend.cpp
     src/QWCompositor.cpp
     src/QWRenderer.cpp
+    src/QWStyleRenderer.cpp
+    src/QWStyleTypes.cpp
+    src/QWSurfaceBackend.cpp
+    src/QWStyleSystem.cpp
 )
 
 target_include_directories(QWindowing PUBLIC include)

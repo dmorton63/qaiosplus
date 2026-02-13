@@ -55,11 +55,14 @@ namespace QW
             Color textColor() const { return m_textColor; }
             void setTextColor(Color color) { m_textColor = color; }
 
+            Color backgroundColor() const { return m_bgColor; }
+            void setBackgroundColor(Color color) { m_bgColor = color; }
+
             bool transparent() const { return m_transparent; }
             void setTransparent(bool transparent) { m_transparent = transparent; }
 
             // Rendering (override from ControlBase)
-            void paint() override;
+            void paint(const PaintContext &context) override;
 
         private:
             char *m_text;
@@ -70,6 +73,7 @@ namespace QW
             bool m_transparent;
 
             Color m_textColor;
+            Color m_bgColor;
         };
 
     } // namespace Controls

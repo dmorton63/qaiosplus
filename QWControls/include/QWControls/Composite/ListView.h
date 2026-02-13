@@ -94,6 +94,9 @@ namespace QW
             Color headerColor() const { return m_headerColor; }
             void setHeaderColor(Color color) { m_headerColor = color; }
 
+            Color backgroundColor() const { return m_bgColor; }
+            void setBackgroundColor(Color color) { m_bgColor = color; }
+
             QC::u32 itemHeight() const { return m_itemHeight; }
             void setItemHeight(QC::u32 height) { m_itemHeight = height; }
 
@@ -105,7 +108,7 @@ namespace QW
             void setItemDoubleClickHandler(ItemDoubleClickHandler handler, void *userData);
 
             // Rendering (override from ControlBase)
-            void paint() override;
+            void paint(const PaintContext &context) override;
 
             // Event handlers (override from ControlBase)
             bool onMouseMove(QC::i32 x, QC::i32 y, QC::i32 deltaX, QC::i32 deltaY) override;
@@ -129,6 +132,7 @@ namespace QW
             Color m_textColor;
             Color m_selColor;
             Color m_headerColor;
+            Color m_bgColor;
 
             SelectionChangeHandler m_selChangeHandler;
             void *m_selChangeUserData;

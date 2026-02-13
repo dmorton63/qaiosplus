@@ -3,81 +3,98 @@
 
 #include "QWControls/Containers/Panel.h"
 #include "QWWindow.h"
+#include "QWStyleTypes.h"
+#include "QGPen.h"
 
 namespace QW
 {
     namespace Controls
     {
+        namespace
+        {
+            PanelBorderStyle translateBorderStyle(BorderStyle style)
+            {
+                switch (style)
+                {
+                case BorderStyle::None:
+                    return PanelBorderStyle::None;
+                case BorderStyle::Flat:
+                    return PanelBorderStyle::Flat;
+                case BorderStyle::Raised:
+                    return PanelBorderStyle::Raised;
+                case BorderStyle::Sunken:
+                    return PanelBorderStyle::Sunken;
+                case BorderStyle::Etched:
+                    return PanelBorderStyle::Etched;
+                }
+                return PanelBorderStyle::Flat;
+            }
+        }
+
         Panel::Panel()
             : Container(),
-              m_frame(),
               m_frameVisible(true),
               m_borderStyle(BorderStyle::Flat),
               m_paddingLeft(0),
               m_paddingTop(0),
               m_paddingRight(0),
-              m_paddingBottom(0)
+              m_paddingBottom(0),
+              m_borderWidth(1),
+              m_hasBorderColorOverride(false),
+              m_borderColor(Color(0, 0, 0, 0)),
+              m_hasBackgroundOverride(false),
+              m_backgroundColor(Color(0, 0, 0, 0))
         {
-            m_bgColor = Color(240, 240, 240, 255);
-            syncFrameFromBorderStyle();
         }
 
         Panel::Panel(Window *window, Rect bounds)
             : Container(window, bounds),
-              m_frame(),
               m_frameVisible(true),
               m_borderStyle(BorderStyle::Flat),
               m_paddingLeft(0),
               m_paddingTop(0),
               m_paddingRight(0),
-              m_paddingBottom(0)
+              m_paddingBottom(0),
+              m_borderWidth(1),
+              m_hasBorderColorOverride(false),
+              m_borderColor(Color(0, 0, 0, 0)),
+              m_hasBackgroundOverride(false),
+              m_backgroundColor(Color(0, 0, 0, 0))
         {
-            m_bgColor = Color(240, 240, 240, 255);
-            syncFrameFromBorderStyle();
         }
 
         void Panel::setBorderStyle(BorderStyle style)
         {
             m_borderStyle = style;
-            syncFrameFromBorderStyle();
+            invalidate();
         }
 
         void Panel::setBorderColor(Color color)
         {
-            FrameColors colors = m_frame.colors();
-            colors.borderMid = color;
-            m_frame.setColors(colors);
+            m_hasBorderColorOverride = true;
+            m_borderColor = color;
+            invalidate();
         }
 
         void Panel::setBorderWidth(QC::u32 width)
         {
-            FrameMetrics metrics = m_frame.metrics();
-            metrics.borderWidth = width;
-            m_frame.setMetrics(metrics);
+            m_borderWidth = width;
+            invalidate();
         }
 
-        void Panel::syncFrameFromBorderStyle()
+        void Panel::setBackgroundColor(Color color)
         {
-            QC::u32 style = FrameStyle::FillSolid;
-            switch (m_borderStyle)
-            {
-            case BorderStyle::None:
-                style = FrameStyle::FillSolid;
-                break;
-            case BorderStyle::Flat:
-                style = FrameStyle::BorderFlat | FrameStyle::FillSolid;
-                break;
-            case BorderStyle::Raised:
-                style = FrameStyle::BorderRaised | FrameStyle::FillSolid;
-                break;
-            case BorderStyle::Sunken:
-                style = FrameStyle::BorderSunken | FrameStyle::FillSolid;
-                break;
-            case BorderStyle::Etched:
-                style = FrameStyle::BorderEtched | FrameStyle::FillSolid;
-                break;
-            }
-            m_frame.setStyle(style);
+            m_hasBackgroundOverride = true;
+            m_backgroundColor = color;
+            invalidate();
+        }
+
+        void Panel::clearBackgroundColor()
+        {
+            if (!m_hasBackgroundOverride)
+                return;
+            m_hasBackgroundOverride = false;
+            invalidate();
         }
 
         void Panel::setPadding(QC::u32 left, QC::u32 top, QC::u32 right, QC::u32 bottom)
@@ -90,7 +107,7 @@ namespace QW
 
         Rect Panel::clientRect() const
         {
-            QC::u32 bw = m_frame.metrics().borderWidth;
+            QC::u32 bw = m_borderWidth;
             Rect client;
             client.x = static_cast<QC::i32>(bw + m_paddingLeft);
             client.y = static_cast<QC::i32>(bw + m_paddingTop);
@@ -99,26 +116,83 @@ namespace QW
             return client;
         }
 
-        void Panel::paint()
+        void Panel::paint(const PaintContext &context)
         {
             if (!m_visible || !m_window)
             {
                 return;
             }
 
-            if (m_frameVisible)
+            Rect abs = absoluteBounds();
+            bool drewDecoration = false;
+
+            if (m_frameVisible && context.styleRenderer)
             {
-                Rect abs = absoluteBounds();
-                m_frame.setBounds(abs);
+                PanelPaintArgs args{};
+                args.bounds = abs;
+                args.sunken = (m_borderStyle == BorderStyle::Sunken ||
+                               m_borderStyle == BorderStyle::Etched);
+                args.borderStyle = translateBorderStyle(m_borderStyle);
+                args.borderWidth = (m_borderWidth == 0) ? 1 : m_borderWidth;
+                if (m_hasBackgroundOverride)
+                {
+                    args.hasBackgroundOverride = true;
+                    args.backgroundColor = m_backgroundColor;
+                }
+                if (m_hasBorderColorOverride)
+                {
+                    args.hasBorderColorOverride = true;
+                    args.borderColor = m_borderColor;
+                }
+                context.styleRenderer->drawPanel(args);
+                drewDecoration = true;
+            }
+            else if (context.painter)
+            {
+                if (m_hasBackgroundOverride)
+                {
+                    context.painter->fillRect(abs, m_backgroundColor);
+                }
 
-                FrameColors colors = m_frame.colors();
-                colors.background = m_bgColor;
-                m_frame.setColors(colors);
+                if (m_frameVisible && m_borderStyle != BorderStyle::None)
+                {
+                    const QC::u32 bw = (m_borderWidth == 0) ? 1 : m_borderWidth;
+                    QC::Color baseColor = m_hasBorderColorOverride ? m_borderColor : QC::Color::buttonShadow();
+                    switch (m_borderStyle)
+                    {
+                    case BorderStyle::Raised:
+                        context.painter->drawRaisedBorder(abs,
+                                                          baseColor.lighter(0.35f),
+                                                          baseColor.darker(0.4f),
+                                                          bw);
+                        break;
+                    case BorderStyle::Sunken:
+                        context.painter->drawSunkenBorder(abs,
+                                                          baseColor.lighter(0.35f),
+                                                          baseColor.darker(0.4f),
+                                                          bw);
+                        break;
+                    case BorderStyle::Etched:
+                        context.painter->drawEtchedBorder(abs,
+                                                          baseColor.lighter(0.35f),
+                                                          baseColor.darker(0.4f));
+                        break;
+                    case BorderStyle::Flat:
+                    default:
+                        context.painter->drawRect(abs, QG::Pen(baseColor, bw));
+                        break;
+                    }
+                }
 
-                m_frame.paint(m_window->painter());
+                drewDecoration = m_frameVisible || m_hasBackgroundOverride;
             }
 
-            paintChildren();
+            if (!drewDecoration && context.painter)
+            {
+                context.painter->fillRect(abs, QC::Color::transparent());
+            }
+
+            paintChildren(context);
         }
     }
 } // namespace QW

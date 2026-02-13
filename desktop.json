@@ -2,17 +2,52 @@
     "desktop": {
         "background": {
             "type": "image",
-            "path": "/system/wallpapers/aurora.png",
+            "path": "/system/wallpapers/summer_beach_sky.png",
             "mode": "stretch"
         },
         "theme": {
-            "accent": "#4A90E2",
-            "accentLight": "#6BB6FF",
-            "accentDark": "#2F5A8A",
-            "text": "#FFFFFF",
-            "textSecondary": "#CCCCCC",
-            "panel": "#202020",
-            "panelBorder": "#303030"
+            "base": "Vista",
+            "overrides": {
+                "palette": {
+                    "accent": "#4FA7E3",
+                    "accentLight": "#8FD1FF",
+                    "accentDark": "#2F6FA3",
+                    "text": "#FFFFFF",
+                    "textSecondary": "#E3F4FF",
+                    "panel": "#1E2A33",
+                    "panelBorder": "#2F3E4A"
+                },
+                "metrics": {
+                    "cornerRadius": 6,
+                    "buttonCornerRadius": 6,
+                    "borderWidth": 1
+                },
+                "button": {
+                    "sidebar": {
+                        "fillNormal": "#1E2A33",
+                        "fillHover": "#2F3E4A",
+                        "text": "#CFEAFF",
+                        "border": "#2F3E4A"
+                    },
+                    "accent": {
+                        "fillNormal": "#4FA7E3",
+                        "fillHover": "#8FD1FF",
+                        "fillPressed": "#2F6FA3",
+                        "text": "#FFFFFF",
+                        "border": "#1C425F",
+                        "shineIntensity": 0.35,
+                        "glass": true
+                    },
+                    "destructive": {
+                        "fillNormal": "#C84040",
+                        "fillHover": "#D85A5A",
+                        "fillPressed": "#A03030",
+                        "text": "#FFFFFF",
+                        "border": "#802020",
+                        "glass": true
+                    }
+                }
+            }
         },
         "layout": {
             "type": "absolute",
@@ -23,26 +58,35 @@
                     "x": 0,
                     "y": 0,
                     "width": "100%",
-                    "height": 48,
-                    "background": "#181818",
-                    "borderBottom": "#303030",
+                    "height": 56,
+                    "background": "#2F6FA3",
+                    "borderBottom": "#1C425F",
                     "children": [
                         {
                             "id": "headerTitle",
                             "type": "label",
-                            "text": "QAIOS+ Desktop Environment",
+                            "text": "QAIOS++ Summer Desktop",
                             "x": 20,
-                            "y": 12,
+                            "y": 16,
+                            "color": "#E3F4FF",
+                            "font": "system-bold-18"
+                        },
+                        {
+                            "id": "headerSun",
+                            "type": "label",
+                            "text": "☀️",
+                            "x": "right-160",
+                            "y": 14,
                             "color": "#FFFFFF",
-                            "font": "system-regular-16"
+                            "font": "system-bold-24"
                         },
                         {
                             "id": "clockLabel",
                             "type": "label",
                             "text": "12:45 PM",
-                            "x": "right-120",
-                            "y": 12,
-                            "color": "#CCCCCC",
+                            "x": "right-100",
+                            "y": 18,
+                            "color": "#E3F4FF",
                             "font": "system-regular-16"
                         }
                     ]
@@ -51,11 +95,11 @@
                     "id": "sidebar",
                     "type": "panel",
                     "x": 0,
-                    "y": 48,
+                    "y": 56,
                     "width": 200,
-                    "height": "100%-48",
-                    "background": "#1A1A1A",
-                    "borderRight": "#303030",
+                    "height": "100%-56",
+                    "background": "#1E2A33",
+                    "borderRight": "#2F3E4A",
                     "children": [
                         {
                             "id": "sidebarTitle",
@@ -63,7 +107,7 @@
                             "text": "Applications",
                             "x": 20,
                             "y": 20,
-                            "color": "#AAAAAA",
+                            "color": "#CFEAFF",
                             "font": "system-bold-14"
                         },
                         {
@@ -74,7 +118,7 @@
                             "y": 60,
                             "width": 160,
                             "height": 32,
-                            "style": "vista",
+                            "role": "sidebar",
                             "icon": "/system/icons/folder.png"
                         },
                         {
@@ -85,7 +129,7 @@
                             "y": 100,
                             "width": 160,
                             "height": 32,
-                            "style": "vista",
+                            "role": "sidebar",
                             "icon": "/system/icons/settings.png"
                         },
                         {
@@ -96,8 +140,19 @@
                             "y": 140,
                             "width": 160,
                             "height": 32,
-                            "style": "vista",
+                            "role": "sidebar",
                             "icon": "/system/icons/terminal.png"
+                        },
+                        {
+                            "id": "btnSummerNotes",
+                            "type": "button",
+                            "text": "Summer Notes",
+                            "x": 20,
+                            "y": 180,
+                            "width": 160,
+                            "height": 32,
+                            "role": "sidebar",
+                            "icon": "/system/icons/sun.png"
                         }
                     ]
                 },
@@ -105,38 +160,38 @@
                     "id": "mainContent",
                     "type": "panel",
                     "x": 200,
-                    "y": 48,
+                    "y": 56,
                     "width": "100%-200",
-                    "height": "100%-48",
-                    "background": "#202020",
+                    "height": "100%-56",
+                    "background": "rgba(255,255,255,0.20)",
                     "children": [
                         {
                             "id": "welcomeLabel",
                             "type": "label",
-                            "text": "Welcome to QAIOS+!",
+                            "text": "Welcome to Summer in QAIOS++!",
                             "x": 40,
                             "y": 40,
-                            "color": "#FFFFFF",
-                            "font": "system-bold-24"
+                            "color": "#1C425F",
+                            "font": "system-bold-28"
                         },
                         {
                             "id": "infoLabel",
                             "type": "label",
-                            "text": "This desktop is fully defined by JSON.",
+                            "text": "Bright skies, warm colors, and a relaxed workspace.",
                             "x": 40,
-                            "y": 80,
-                            "color": "#CCCCCC",
+                            "y": 90,
+                            "color": "#2F6FA3",
                             "font": "system-regular-16"
                         },
                         {
                             "id": "cardPanel",
                             "type": "panel",
                             "x": 40,
-                            "y": 140,
-                            "width": 400,
-                            "height": 200,
-                            "background": "#2A2A2A",
-                            "border": "#404040",
+                            "y": 150,
+                            "width": 420,
+                            "height": 220,
+                            "background": "#E3F4FF",
+                            "border": "#A8CDE6",
                             "children": [
                                 {
                                     "id": "cardTitle",
@@ -144,16 +199,16 @@
                                     "text": "System Information",
                                     "x": 20,
                                     "y": 20,
-                                    "color": "#FFFFFF",
+                                    "color": "#1C425F",
                                     "font": "system-bold-18"
                                 },
                                 {
                                     "id": "cardText",
                                     "type": "label",
-                                    "text": "Kernel: QAIOS+ Experimental\nFilesystem: FAT32 + Ramdisk\nRenderer: PainterSurface",
+                                    "text": "Kernel: QAIOS++ Experimental\nTheme: Summer 2026\nRenderer: PainterSurface\nSeasonal Mode: Sunburst",
                                     "x": 20,
                                     "y": 60,
-                                    "color": "#CCCCCC",
+                                    "color": "#2F6FA3",
                                     "font": "system-regular-14"
                                 }
                             ]
@@ -164,31 +219,42 @@
                     "id": "taskbar",
                     "type": "panel",
                     "x": 0,
-                    "y": "bottom-40",
+                    "y": "bottom-48",
                     "width": "100%",
-                    "height": 40,
-                    "background": "#181818",
-                    "borderTop": "#303030",
+                    "height": 48,
+                    "background": "#2F6FA3",
+                    "borderTop": "#1C425F",
                     "children": [
                         {
                             "id": "startButton",
                             "type": "button",
-                            "text": "Start",
+                            "text": "☀️ Start",
                             "x": 10,
-                            "y": 5,
-                            "width": 80,
+                            "y": 9,
+                            "width": 100,
                             "height": 30,
-                            "style": "vista",
-                            "icon": "/system/icons/start.png"
+                            "role": "accent",
+                            "icon": "/system/icons/sun.png"
+                        },
+                        {
+                            "id": "shutDownButton",
+                            "type": "button",
+                            "text": "Shut Down",
+                            "x": 120,
+                            "y": 9,
+                            "width": 100,
+                            "height": 30,
+                            "role": "destructive",
+                            "icon": "/system/icons/shutdown.png"
                         },
                         {
                             "id": "taskbarClock",
                             "type": "label",
                             "text": "12:45 PM",
                             "x": "right-80",
-                            "y": 10,
-                            "color": "#CCCCCC",
-                            "font": "system-regular-14"
+                            "y": 14,
+                            "color": "#E3F4FF",
+                            "font": "system-regular-16"
                         }
                     ]
                 }

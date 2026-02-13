@@ -6,6 +6,7 @@
 #include "QCMemUtil.h"
 #include "QCString.h"
 #include "QWWindow.h"
+#include "QGPainter.h"
 
 namespace QW
 {
@@ -63,53 +64,54 @@ namespace QW
                     strcpy(m_text, text);
                 }
             }
+
+            invalidate();
         }
 
-        void Label::paint()
+        void Label::paint(const PaintContext &context)
         {
-            if (!m_window || !m_visible)
+            if (!m_visible || !context.painter)
                 return;
 
             Rect abs = absoluteBounds();
+            auto *painter = context.painter;
 
-            // Draw background if not transparent
             if (!m_transparent)
             {
-                m_window->fillRect(abs, m_bgColor);
+                painter->fillRect(abs, m_bgColor);
             }
 
-            if (m_text)
+            if (!m_text)
+                return;
+
+            QC::i32 textX = abs.x;
+            QC::i32 textY = abs.y;
+
+            switch (m_textAlign)
             {
-                // Calculate text position based on alignment
-                QC::i32 textX = abs.x;
-                QC::i32 textY = abs.y;
-
-                switch (m_textAlign)
-                {
-                case TextAlign::Center:
-                    textX = abs.x + static_cast<QC::i32>(abs.width / 2);
-                    break;
-                case TextAlign::Right:
-                    textX = abs.x + static_cast<QC::i32>(abs.width);
-                    break;
-                default:
-                    break;
-                }
-
-                switch (m_verticalAlign)
-                {
-                case VerticalAlign::Middle:
-                    textY = abs.y + static_cast<QC::i32>(abs.height / 2);
-                    break;
-                case VerticalAlign::Bottom:
-                    textY = abs.y + static_cast<QC::i32>(abs.height);
-                    break;
-                default:
-                    break;
-                }
-
-                m_window->drawText(textX, textY, m_text, m_textColor);
+            case TextAlign::Center:
+                textX = abs.x + static_cast<QC::i32>(abs.width / 2);
+                break;
+            case TextAlign::Right:
+                textX = abs.x + static_cast<QC::i32>(abs.width);
+                break;
+            default:
+                break;
             }
+
+            switch (m_verticalAlign)
+            {
+            case VerticalAlign::Middle:
+                textY = abs.y + static_cast<QC::i32>(abs.height / 2);
+                break;
+            case VerticalAlign::Bottom:
+                textY = abs.y + static_cast<QC::i32>(abs.height);
+                break;
+            default:
+                break;
+            }
+
+            painter->drawText(textX, textY, m_text, m_textColor);
         }
 
     } // namespace Controls

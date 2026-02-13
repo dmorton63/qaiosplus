@@ -4,7 +4,7 @@
 // Namespace: QW::Controls
 
 #include "QWControls/Containers/Container.h"
-#include "QWControls/Containers/Frame.h"
+#include "QCColor.h"
 
 namespace QW
 {
@@ -29,23 +29,29 @@ namespace QW
             Panel *asPanel() override { return this; }
             const Panel *asPanel() const override { return this; }
 
-            Frame &frame() { return m_frame; }
-            const Frame &frame() const { return m_frame; }
-
-            void setFrameStyle(QC::u32 style) { m_frame.setStyle(style); }
-            QC::u32 frameStyle() const { return m_frame.style(); }
-
             bool isFrameVisible() const { return m_frameVisible; }
-            void setFrameVisible(bool visible) { m_frameVisible = visible; }
+            void setFrameVisible(bool visible)
+            {
+                if (m_frameVisible == visible)
+                    return;
+                m_frameVisible = visible;
+                invalidate();
+            }
 
             BorderStyle borderStyle() const { return m_borderStyle; }
             void setBorderStyle(BorderStyle style);
 
-            Color borderColor() const { return m_frame.colors().borderMid; }
+            Color borderColor() const { return m_borderColor; }
             void setBorderColor(Color color);
+            bool hasBorderColorOverride() const { return m_hasBorderColorOverride; }
 
-            QC::u32 borderWidth() const { return m_frame.metrics().borderWidth; }
+            QC::u32 borderWidth() const { return m_borderWidth; }
             void setBorderWidth(QC::u32 width);
+
+            bool hasBackgroundOverride() const { return m_hasBackgroundOverride; }
+            Color backgroundColor() const { return m_backgroundColor; }
+            void setBackgroundColor(Color color);
+            void clearBackgroundColor();
 
             void setPadding(QC::u32 left, QC::u32 top, QC::u32 right, QC::u32 bottom);
             void setPadding(QC::u32 all) { setPadding(all, all, all, all); }
@@ -57,18 +63,20 @@ namespace QW
 
             Rect clientRect() const;
 
-            void paint() override;
+            void paint(const PaintContext &context) override;
 
         protected:
-            void syncFrameFromBorderStyle();
-
-            Frame m_frame;
             bool m_frameVisible;
             BorderStyle m_borderStyle;
             QC::u32 m_paddingLeft;
             QC::u32 m_paddingTop;
             QC::u32 m_paddingRight;
             QC::u32 m_paddingBottom;
+            QC::u32 m_borderWidth;
+            bool m_hasBorderColorOverride;
+            Color m_borderColor;
+            bool m_hasBackgroundOverride;
+            Color m_backgroundColor;
         };
     }
 } // namespace QW

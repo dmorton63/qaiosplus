@@ -60,7 +60,11 @@ namespace QFS
             if (QC::String::strcmp(m_mounts[i].path, path) == 0)
             {
                 m_mounts[i].fs->unmount();
-                // TODO: Remove from vector
+                for (QC::usize j = i + 1; j < m_mounts.size(); ++j)
+                {
+                    m_mounts[j - 1] = m_mounts[j];
+                }
+                m_mounts.pop_back();
                 QC_LOG_INFO("QFS", "Unmounted filesystem at %s", path);
                 return QC::Status::Success;
             }

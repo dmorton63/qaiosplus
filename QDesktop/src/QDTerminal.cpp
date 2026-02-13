@@ -8,10 +8,13 @@
 #include "QCLogger.h"
 #include "QCString.h"
 #include "QCBuiltins.h"
+#include "QKEventManager.h"
+#include "QKShutdownController.h"
 
 #include "QWWindowManager.h"
 #include "QWWindow.h"
 #include "QWControls/Containers/Panel.h"
+#include "QWControls/Leaf/Button.h"
 #include "QWControls/Leaf/Label.h"
 #include "QWControls/Leaf/TextBox.h"
 
@@ -50,11 +53,7 @@ namespace QD
 
     Terminal::~Terminal()
     {
-        // For now, keep it simple: if still open, let WindowManager own/destroy it at shutdown.
-        m_window = nullptr;
-        m_root = nullptr;
-        m_output = nullptr;
-        m_input = nullptr;
+        close();
     }
 
     void Terminal::open()
@@ -106,6 +105,13 @@ namespace QD
         m_input->setTextSubmitHandler(&Terminal::onSubmit, this);
         m_root->addChild(m_input);
 
+        // Close button in the upper-right corner
+        QC::Rect closeBounds = {static_cast<QC::i32>(w - 28), 8, 20, 20};
+        auto *closeButton = new QW::Controls::Button(m_window, "X", closeBounds);
+        closeButton->setRole(QW::ButtonRole::Destructive);
+        closeButton->setClickHandler(&Terminal::onCloseClick, this);
+        m_root->addChild(closeButton);
+
         // Initialize output buffer from initial text
         const char *initial = m_output->text();
         if (initial)
@@ -126,6 +132,23 @@ namespace QD
         // Optional taskbar entry
         m_desktop->addTaskbarWindow(m_window->windowId(), "Terminal");
         m_desktop->setActiveTaskbarWindow(m_window->windowId());
+    }
+
+    void Terminal::close()
+    {
+        if (!m_window)
+            return;
+
+        if (m_desktop)
+        {
+            m_desktop->removeTaskbarWindow(m_window->windowId());
+        }
+
+        QW::WindowManager::instance().destroyWindow(m_window);
+        m_window = nullptr;
+        m_root = nullptr;
+        m_output = nullptr;
+        m_input = nullptr;
     }
 
     void Terminal::focus()
@@ -228,15 +251,24 @@ namespace QD
 
         if (streq(cmd, "shutdown"))
         {
-            appendLine("Shutting down...");
-            // QEMU/Bochs ACPI shutdown
-            QC::outw(0x604, 0x2000);
-            QC::cli();
-            for (;;)
-                QC::halt();
+            appendLine("Shutdown requested. Awaiting confirmation...");
+            QK::Event::EventManager::instance().postShutdownEvent(
+                QK::Event::Type::ShutdownRequest,
+                static_cast<QC::u32>(QK::Shutdown::Reason::ShellCommand));
+            return;
         }
 
         appendLine("Unknown command. Type 'help'.");
+    }
+
+    void Terminal::onCloseClick(QW::Controls::Button *button, void *userData)
+    {
+        (void)button;
+        auto *self = static_cast<Terminal *>(userData);
+        if (!self)
+            return;
+
+        self->close();
     }
 
 } // namespace QD

@@ -37,8 +37,8 @@ namespace QW
             IControl *findChild(ControlId id);
             IControl *childAtPoint(QC::i32 x, QC::i32 y);
 
-            void paint() override;
-            virtual void paintChildren();
+            void paint(const PaintContext &context) override;
+            virtual void paintChildren(const PaintContext &context);
 
             bool onEvent(const QK::Event::Event &event) override;
             bool onMouseMove(QC::i32 x, QC::i32 y, QC::i32 deltaX, QC::i32 deltaY) override;

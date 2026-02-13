@@ -32,7 +32,10 @@ namespace QFS
 
     void Directory::rewind()
     {
-        // TODO: Implement rewind - reset directory iteration
+        if (m_open && m_fs)
+        {
+            m_fs->rewindDir(this);
+        }
     }
 
 } // namespace QFS

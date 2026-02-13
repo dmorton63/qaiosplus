@@ -91,6 +91,7 @@ namespace QFS
         virtual Directory *openDir(const char *path) = 0;
         virtual QC::Status closeDir(Directory *dir) = 0;
         virtual bool readDir(Directory *dir, DirEntry *entry) = 0;
+        virtual void rewindDir(Directory *dir) = 0;
 
         virtual QC::Status stat(const char *path, FileInfo *info) = 0;
         virtual QC::Status createDir(const char *path) = 0;
@@ -115,6 +116,7 @@ namespace QFS
         Directory *openDir(const char *path) override;
         QC::Status closeDir(Directory *dir) override;
         bool readDir(Directory *dir, DirEntry *entry) override;
+        void rewindDir(Directory *dir) override;
 
         QC::Status stat(const char *path, FileInfo *info) override;
         QC::Status createDir(const char *path) override;
@@ -125,6 +127,9 @@ namespace QFS
         {
             QC::u32 startCluster;
             QC::u64 size;
+            QC::u32 dirCluster;
+            QC::u32 dirEntryIndex;
+            bool dirty;
         };
 
         struct FATDirHandle
@@ -140,9 +145,12 @@ namespace QFS
         QC::u32 allocateCluster();
         void freeClusterChain(QC::u32 startCluster);
 
-        FAT32DirEntry *findEntry(const char *path, QC::u32 *parentCluster = nullptr);
+        FAT32DirEntry *findEntry(const char *path, QC::u32 *parentCluster = nullptr, QC::u32 *entryIndex = nullptr);
         bool loadCluster(QC::u32 cluster);
+        bool storeCluster(QC::u32 cluster);
         bool iterateDirectory(QC::u32 startCluster, const char *fatName, FAT32DirEntry *outEntry, QC::u32 *entryIndex = nullptr);
+        bool updateDirectoryEntry(QC::u32 dirStartCluster, QC::u32 entryIndex, const FAT32DirEntry &entry);
+        bool findFreeDirectoryEntry(QC::u32 dirStartCluster, QC::u32 *outEntryIndex);
         QC::u32 traverseToCluster(QC::u32 startCluster, QC::u32 index);
         QC::u32 entryCluster(const FAT32DirEntry &entry) const;
         void parseName(const char *fatName, char *outName);
@@ -153,6 +161,7 @@ namespace QFS
         QC::u32 m_fatStart;
         QC::u32 m_dataStart;
         QC::u32 m_clusterSize;
+        QC::u32 m_totalClusters;
         QC::u8 *m_clusterBuffer;
         FAT32DirEntry m_entryCache;
     };

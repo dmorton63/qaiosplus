@@ -62,12 +62,15 @@ namespace QW
             Color selectionColor() const { return m_selectionColor; }
             void setSelectionColor(Color color) { m_selectionColor = color; }
 
+            Color backgroundColor() const { return m_bgColor; }
+            void setBackgroundColor(Color color) { m_bgColor = color; }
+
             // Events
             void setTextChangeHandler(TextChangeHandler handler, void *userData);
             void setTextSubmitHandler(TextSubmitHandler handler, void *userData);
 
             // Rendering (override from ControlBase)
-            void paint() override;
+            void paint(const PaintContext &context) override;
 
             // Event handlers (override from ControlBase)
             bool onMouseMove(QC::i32 x, QC::i32 y, QC::i32 deltaX, QC::i32 deltaY) override;
@@ -98,6 +101,7 @@ namespace QW
             Color m_textColor;
             Color m_borderColor;
             Color m_selectionColor;
+            Color m_bgColor;
 
             TextChangeHandler m_changeHandler;
             void *m_changeUserData;

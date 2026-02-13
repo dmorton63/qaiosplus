@@ -23,6 +23,7 @@
 #include "QWWindow.h"
 #include "QKEventManager.h"
 #include "QKEventListener.h"
+#include "QKShutdownController.h"
 #include "QWControls/Leaf/Button.h"
 #include "QDDesktop.h"
 #define LIMINE_API_REVISION 2
@@ -53,8 +54,52 @@ extern "C"
     extern QC::u64 limine_hhdm_request[];
     extern QC::u64 limine_kernel_address_request[];
     extern QC::u64 limine_module_request[];
+    extern QC::u64 limine_terminal_request[];
 }
 
+// Forward declaration (initBootTerminal() uses serialPrint()).
+static void serialPrint(const char *msg);
+
+// Forward declaration (initializeRamdiskFilesystem() calls fileIoDemo()).
+static void fileIoDemo();
+
+static limine_terminal *g_bootTerm = nullptr;
+static limine_terminal_write g_bootTermWrite = nullptr;
+
+static bool initBootTerminal()
+{
+    auto *response = reinterpret_cast<limine_terminal_response *>(limine_terminal_request[5]);
+    if (!response)
+    {
+        serialPrint("Limine terminal: no response\r\n");
+        return false;
+    }
+
+    if (!response->write)
+    {
+        serialPrint("Limine terminal: no write function\r\n");
+        return false;
+    }
+
+    if (response->terminal_count == 0 || !response->terminals)
+    {
+        serialPrint("Limine terminal: no terminals\r\n");
+        return false;
+    }
+
+    g_bootTerm = response->terminals[0];
+    g_bootTermWrite = response->write;
+    serialPrint("Limine terminal: ready\r\n");
+    return true;
+}
+
+static void bootTermPrint(const char *msg)
+{
+    if (g_bootTerm && g_bootTermWrite)
+    {
+        g_bootTermWrite(g_bootTerm, msg, QC::String::strlen(msg));
+    }
+}
 // Global HHDM offset (physical to virtual mapping)
 static QC::u64 g_hhdmOffset = 0;
 
@@ -142,6 +187,9 @@ static void serialInit()
 
 static void serialPrint(const char *msg)
 {
+    // Mirror to Limine boot terminal (if present). Safe even before initBootTerminal().
+    bootTermPrint(msg);
+
     while (*msg)
     {
         // Wait for transmit buffer empty
@@ -322,6 +370,7 @@ static bool initializeRamdiskFilesystem()
     }
 
     serialPrint("Ramdisk mounted at /\r\n");
+    fileIoDemo();
     return true;
 }
 
@@ -352,6 +401,56 @@ static void readHelloFileDemo()
     }
 
     g_vfs->close(file);
+}
+
+static void fileIoDemo()
+{
+    if (!g_vfs)
+        return;
+
+    serialPrint("Root dir listing:\r\n");
+    QFS::Directory *dir = g_vfs->openDir("/");
+    if (dir)
+    {
+        QFS::DirEntry entry;
+        while (dir->read(&entry))
+        {
+            serialPrint("  ");
+            serialPrint(entry.name);
+            serialPrint("\r\n");
+        }
+        g_vfs->closeDir(dir);
+    }
+
+    const char *path = "/QFSDEMO.TXT";
+    QFS::File *out = g_vfs->open(path, QFS::OpenMode::Write | QFS::OpenMode::Create | QFS::OpenMode::Truncate);
+    if (!out)
+    {
+        serialPrint("Failed to create demo file\r\n");
+        return;
+    }
+
+    const char *msg = "QAIOS+ FileIO demo\n";
+    out->write(msg, QC::String::strlen(msg));
+    g_vfs->close(out);
+
+    QFS::File *in = g_vfs->open(path, QFS::OpenMode::Read);
+    if (!in)
+    {
+        serialPrint("Failed to open demo file for read\r\n");
+        return;
+    }
+
+    char buffer[64];
+    QC::isize bytes = in->read(buffer, sizeof(buffer) - 1);
+    if (bytes > 0)
+    {
+        buffer[bytes] = '\0';
+        serialPrint("Demo file contents: ");
+        serialPrint(buffer);
+        serialPrint("\r\n");
+    }
+    g_vfs->close(in);
 }
 
 // Kernel panic
@@ -390,11 +489,13 @@ extern "C" void kernel_main(QC::u32 magic, BootInfo *bootInfo)
     serialInit();
     serialPrint("\r\n=== QAIOS Kernel ===\r\n");
     serialPrint("Serial initialized, kernel starting...\r\n");
-
     // Limine already clears BSS for us, skip clearBSS()
     // clearBSS();
     serialPrint("BSS (skipped - Limine does it)\r\n");
-
+    if (initBootTerminal())
+    {
+        bootTermPrint("Boot terminal initialized\r\n");
+    }
     // Get HHDM offset from Limine (needed for MMIO mapping)
     QC::u64 *hhdm_response = reinterpret_cast<QC::u64 *>(limine_hhdm_request[5]);
     if (hhdm_response != nullptr)
@@ -547,6 +648,10 @@ extern "C" void kernel_main(QC::u32 magic, BootInfo *bootInfo)
             // Initialize the event system
             QK::Event::EventManager::instance().initialize();
             serialPrint("Event system initialized\r\n");
+
+            // Bring up shutdown controller early so it can register event listeners
+            QK::Shutdown::Controller::instance();
+            serialPrint("Shutdown controller ready\r\n");
 
             // Initialize timer (100 Hz tick for main loop)
             serialPrint("Initializing timer...\r\n");
@@ -745,14 +850,10 @@ extern "C" void kernel_main(QC::u32 magic, BootInfo *bootInfo)
                 if (key.keycode == static_cast<QC::u8>(QKDrv::PS2::Key::Q) &&
                     QK::Event::hasModifier(key.modifiers, QK::Event::Modifiers::Ctrl))
                 {
-                    serialPrint("Ctrl+Q pressed - shutting down!\r\n");
-                    // QEMU/Bochs ACPI shutdown
-                    QC::outw(0x604, 0x2000);
-                    QC::cli();
-                    for (;;)
-                    {
-                        QC::halt();
-                    }
+                    serialPrint("Ctrl+Q pressed - requesting shutdown!\r\n");
+                    QK::Event::EventManager::instance().postShutdownEvent(
+                        QK::Event::Type::ShutdownRequest,
+                        static_cast<QC::u32>(QK::Shutdown::Reason::KeyboardShortcut));
                     return true;
                 }
                 return false;

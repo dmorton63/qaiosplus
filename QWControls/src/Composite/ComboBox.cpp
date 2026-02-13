@@ -29,7 +29,6 @@ namespace QW
               m_changeHandler(nullptr),
               m_changeUserData(nullptr)
         {
-            m_bgColor = Color(255, 255, 255, 255);
             setBorderStyle(BorderStyle::Sunken);
         }
 
@@ -48,7 +47,6 @@ namespace QW
               m_changeHandler(nullptr),
               m_changeUserData(nullptr)
         {
-            m_bgColor = Color(255, 255, 255, 255);
             setBorderStyle(BorderStyle::Sunken);
             createChildControls();
         }
@@ -99,12 +97,14 @@ namespace QW
             m_dropdownPanel = new Panel(m_window, dropdownRect);
             m_dropdownPanel->setVisible(false);
             m_dropdownPanel->setBorderStyle(BorderStyle::Flat);
+            m_dropdownPanel->setBackgroundColor(m_dropdownBgColor);
 
             // Create ListView inside dropdown panel
             Rect listRect = {0, 0, m_bounds.width, dropdownHeight};
             m_dropdownList = new ListView(m_window, listRect);
             m_dropdownList->setShowHeader(false);
             m_dropdownList->setSelectionMode(SelectionMode::Single);
+            m_dropdownList->setBackgroundColor(m_dropdownBgColor);
             m_dropdownPanel->addChild(m_dropdownList);
         }
 
@@ -295,6 +295,19 @@ namespace QW
             }
         }
 
+        void ComboBox::setDropdownBackgroundColor(Color color)
+        {
+            m_dropdownBgColor = color;
+            if (m_dropdownPanel)
+            {
+                m_dropdownPanel->setBackgroundColor(color);
+            }
+            if (m_dropdownList)
+            {
+                m_dropdownList->setBackgroundColor(color);
+            }
+        }
+
         void ComboBox::dropDown()
         {
             if (!m_droppedDown)
@@ -340,15 +353,15 @@ namespace QW
             m_changeUserData = userData;
         }
 
-        void ComboBox::paint()
+        void ComboBox::paint(const PaintContext &context)
         {
             // Paint the main panel
-            Panel::paint();
+            Panel::paint(context);
 
             // Paint dropdown if open
             if (m_droppedDown && m_dropdownPanel)
             {
-                m_dropdownPanel->paint();
+                m_dropdownPanel->paint(context);
             }
         }
 

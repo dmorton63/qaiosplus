@@ -9,6 +9,7 @@
             "miDebuggerServerAddress": "localhost:1234",
             "miDebuggerPath": "/usr/bin/gdb",
             "cwd": "${workspaceFolder}",
+            "preLaunchTask": "Run QEMU (rebuild ISO first)",
             "setupCommands": [
                 {
                     "description": "Enable pretty-printing",
