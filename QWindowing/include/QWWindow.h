@@ -23,6 +23,9 @@ namespace QW
 {
     class WindowManager;
 
+    struct Message;
+    using MessageHandler = bool (*)(Window *window, const Message &msg, void *userData);
+
     using Rect = QC::Rect;
     using Color = QC::Color;
 
@@ -86,6 +89,10 @@ namespace QW
         // event handling
         bool onEvent(const QK::Event::Event &e) override;
 
+        // messaging (distinct from input/system events)
+        void setMessageHandler(MessageHandler handler, void *userData);
+        bool handleMessage(const Message &msg);
+
     protected:
         void onPaint();
         void onResize(uint32_t w, uint32_t h);
@@ -108,5 +115,8 @@ namespace QW
         QC::u32 m_bufferWidth;
         QC::u32 m_bufferHeight;
         QC::u32 m_bufferPitchBytes;
+
+        MessageHandler m_msgHandler = nullptr;
+        void *m_msgUserData = nullptr;
     };
 } // namespace QW

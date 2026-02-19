@@ -107,6 +107,13 @@ namespace QC
         asm volatile("pause");
     }
 
+    inline void wbinvd()
+    {
+        // Write back and invalidate the entire CPU cache hierarchy.
+        // Useful as a blunt tool when writing to device VRAM through a cacheable mapping.
+        asm volatile("wbinvd" ::: "memory");
+    }
+
     // MSR access
     inline u64 read_msr(u32 msr)
     {

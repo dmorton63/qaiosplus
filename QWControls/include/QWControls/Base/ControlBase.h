@@ -8,7 +8,6 @@ namespace QW
 
     namespace Controls
     {
-
         class Panel;
 
         class ControlBase : public IControl
@@ -24,14 +23,14 @@ namespace QW
 
             // Hierarchy
             Panel *parent() const override { return m_parent; }
-            void setParent(Panel *parent) override { m_parent = parent; }
+            void setParent(Panel *parent) override;
 
             Window *window() const override { return m_window; }
             void setWindow(Window *window) override { m_window = window; }
 
             // Geometry
             Rect bounds() const override { return m_bounds; }
-            void setBounds(const Rect &bounds) override { m_bounds = bounds; }
+            void setBounds(const Rect &bounds) override;
 
             Rect absoluteBounds() const override;
             bool hitTest(int x, int y) const override;
@@ -67,6 +66,10 @@ namespace QW
         protected:
             void setState(ControlState state) { m_state = state; }
 
+            // Dirty flag + cached absolute bounds
+            void markAbsoluteBoundsDirty();
+            void recomputeAbsoluteBounds() const;
+
             ControlId m_id;
             Panel *m_parent;
             Window *m_window;
@@ -75,6 +78,10 @@ namespace QW
             bool m_visible;
             bool m_focused;
             ControlState m_state;
+
+            // Cached absolute bounds
+            mutable Rect m_cachedAbsoluteBounds;
+            mutable bool m_absBoundsDirty = true;
 
         private:
             static ControlId s_nextId;

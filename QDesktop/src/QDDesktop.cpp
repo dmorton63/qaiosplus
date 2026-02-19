@@ -5,18 +5,30 @@
 #include "QDColorUtils.h"
 #include "QWWindowManager.h"
 #include "QCJson.h"
+#include "QDCommandProcessor.h"
 #include "QCLogger.h"
+#include "QCString.h"
 #include "QFSVFS.h"
 #include "QFSFile.h"
 #include "QWStyleSystem.h"
 #include "QWStyleTypes.h"
 #include "QDShutdownDialog.h"
+#include "QDSetupWizard.h"
+#include "QDLoginDialog.h"
 #include "QKEventManager.h"
 #include "QKShutdownController.h"
 #include "QGPainter.h"
+#include "QG/Image.h"
+#include "QWControls/Leaf/ImageView.h"
+#include "QWControls/Leaf/ScrollBar.h"
 
 namespace QD
 {
+    namespace
+    {
+        constexpr const char *OWNER_MARKER_PATH = "/system/owner.enrolled";
+    }
+
     // Sidebar item labels
     static const char *SIDEBAR_LABELS[] = {
         "Home",
@@ -29,6 +41,23 @@ namespace QD
     namespace
     {
         constexpr const char *LOG_MODULE = "QDesktop";
+        constexpr float BASE_THEME_FONT_SIZE = 12.0f;
+
+        static void onJsonSliderOpenLogin(QW::Controls::ScrollBar *slider, void *userData)
+        {
+            auto *desktop = static_cast<Desktop *>(userData);
+            if (!desktop || !slider)
+                return;
+
+            if (slider->value() >= slider->maximum())
+            {
+                desktop->showLoginDialog();
+            }
+            else if (slider->value() <= slider->minimum())
+            {
+                desktop->hideLoginDialog();
+            }
+        }
 
         inline QC::i32 parseInt(const char *s, bool *ok)
         {
@@ -73,6 +102,21 @@ namespace QD
                 ++prefix;
             }
             return true;
+        }
+        inline bool equalsIgnoreCase(const char *a, const char *b)
+        {
+            if (!a || !b)
+                return false;
+            while (*a && *b)
+            {
+                char ca = (*a >= 'A' && *a <= 'Z') ? static_cast<char>(*a + 32) : *a;
+                char cb = (*b >= 'A' && *b <= 'Z') ? static_cast<char>(*b + 32) : *b;
+                if (ca != cb)
+                    return false;
+                ++a;
+                ++b;
+            }
+            return *a == '\0' && *b == '\0';
         }
 
         inline QW::ButtonRole roleForJsonButton(const char *id, const QC::JSON::Value *controlValue)
@@ -326,7 +370,9 @@ namespace QD
           m_hours(10),
           m_minutes(32),
           m_terminal(nullptr),
-          m_shutdownDialog(nullptr)
+          m_shutdownDialog(nullptr),
+          m_setupWizard(nullptr),
+          m_loginDialog(nullptr)
     {
         for (QC::u8 i = 0; i < static_cast<QC::u8>(SidebarItem::Count); ++i)
         {
@@ -341,6 +387,7 @@ namespace QD
         }
 
         resetThemeOverrides();
+        resetBackgroundConfig();
     }
 
     Desktop::~Desktop()
@@ -376,6 +423,15 @@ namespace QD
 
         QK::Shutdown::Controller::instance().registerUIHandler(&Desktop::onShutdownRequested, this);
 
+        // Ensure command processor is available for terminals and JSON/app-driven command clients.
+        QD::CommandProcessor::instance().initialize();
+
+        // First boot: show setup wizard if owner enrollment marker is missing.
+        if (!isOwnerEnrolled())
+        {
+            showSetupWizard();
+        }
+
         m_initialized = true;
     }
 
@@ -390,6 +446,8 @@ namespace QD
             m_desktopWindow->setBounds(bounds);
         }
 
+        // Ensure command processor is available for JSON/app-driven terminals.
+        QD::CommandProcessor::instance().initialize();
         updateLayout();
     }
 
@@ -404,6 +462,18 @@ namespace QD
         {
             delete m_shutdownDialog;
             m_shutdownDialog = nullptr;
+        }
+
+        if (m_setupWizard)
+        {
+            delete m_setupWizard;
+            m_setupWizard = nullptr;
+        }
+
+        if (m_loginDialog)
+        {
+            delete m_loginDialog;
+            m_loginDialog = nullptr;
         }
 
         if (m_jsonDriven)
@@ -476,6 +546,48 @@ namespace QD
         {
             delete m_terminal;
             m_terminal = nullptr;
+        }
+
+        releaseImageAssets();
+        resetBackgroundConfig();
+    }
+
+    bool Desktop::isOwnerEnrolled() const
+    {
+        return QFS::VFS::instance().exists(OWNER_MARKER_PATH);
+    }
+
+    void Desktop::showSetupWizard()
+    {
+        if (!m_setupWizard)
+        {
+            m_setupWizard = new SetupWizard(this);
+        }
+
+        if (m_setupWizard)
+        {
+            m_setupWizard->open();
+        }
+    }
+
+    void Desktop::showLoginDialog()
+    {
+        if (!m_loginDialog)
+        {
+            m_loginDialog = new LoginDialog(this);
+        }
+
+        if (m_loginDialog)
+        {
+            m_loginDialog->open();
+        }
+    }
+
+    void Desktop::hideLoginDialog()
+    {
+        if (m_loginDialog)
+        {
+            m_loginDialog->close();
         }
     }
 
@@ -591,12 +703,105 @@ namespace QD
         m_jsonDriven = false;
 
         resetThemeOverrides();
+        resetBackgroundConfig();
+        releaseImageAssets();
     }
 
     void Desktop::resetThemeOverrides()
     {
         m_themeOverrides = ThemeOverrides{};
         m_themeLoaded = false;
+    }
+
+    void Desktop::resetBackgroundConfig()
+    {
+        m_backgroundConfig.mode = BackgroundMode::Gradient;
+        m_backgroundConfig.image = nullptr;
+        m_backgroundConfig.scaleMode = QG::ImageScaleMode::Stretch;
+        m_backgroundConfig.topColor = QW::Color();
+        m_backgroundConfig.bottomColor = QW::Color();
+        m_backgroundConfig.topOverride = false;
+        m_backgroundConfig.bottomOverride = false;
+    }
+
+    void Desktop::releaseImageAssets()
+    {
+        for (QC::usize i = 0; i < m_imageAssets.size(); ++i)
+        {
+            delete m_imageAssets[i];
+        }
+        m_imageAssets.clear();
+    }
+
+    Desktop::ImageAsset *Desktop::findImageAsset(const char *path) const
+    {
+        if (!path || !*path)
+            return nullptr;
+        for (QC::usize i = 0; i < m_imageAssets.size(); ++i)
+        {
+            if (QC::String::strcmp(m_imageAssets[i]->path, path) == 0)
+                return m_imageAssets[i];
+        }
+        return nullptr;
+    }
+
+    bool Desktop::readFileBytes(const char *path, QC::Vector<QC::u8> &outBuffer) const
+    {
+        outBuffer.clear();
+        if (!path || !*path)
+            return false;
+        QFS::File *file = QFS::VFS::instance().open(path, QFS::OpenMode::Read);
+        if (!file)
+        {
+            QC_LOG_WARN(LOG_MODULE, "Image file %s not found", path);
+            return false;
+        }
+        const QC::u64 size64 = file->size();
+        if (size64 == 0 || size64 > 4 * 1024 * 1024)
+        {
+            QFS::VFS::instance().close(file);
+            QC_LOG_WARN(LOG_MODULE, "Image file %s has invalid size", path);
+            return false;
+        }
+        const QC::usize size = static_cast<QC::usize>(size64);
+        outBuffer.resize(size);
+        const QC::isize read = file->read(outBuffer.data(), size);
+        QFS::VFS::instance().close(file);
+        if (read != static_cast<QC::isize>(size))
+        {
+            outBuffer.clear();
+            QC_LOG_WARN(LOG_MODULE, "Failed to read image file %s", path);
+            return false;
+        }
+        return true;
+    }
+
+    Desktop::ImageAsset *Desktop::loadImageAsset(const char *path)
+    {
+        if (ImageAsset *cached = findImageAsset(path))
+            return cached;
+
+        QC::Vector<QC::u8> buffer;
+        if (!readFileBytes(path, buffer))
+            return nullptr;
+
+        auto *asset = new ImageAsset();
+        asset->path[0] = '\0';
+        if (path)
+        {
+            QC::String::strncpy(asset->path, path, sizeof(asset->path) - 1);
+            asset->path[sizeof(asset->path) - 1] = '\0';
+        }
+
+        if (!QG::decodePNG(buffer, asset->surface))
+        {
+            delete asset;
+            QC_LOG_WARN(LOG_MODULE, "Failed to decode PNG %s", path ? path : "<null>");
+            return nullptr;
+        }
+
+        m_imageAssets.push_back(asset);
+        return asset;
     }
 
     float Desktop::clamp01(float value)
@@ -805,6 +1010,12 @@ namespace QD
         glow.intensity = effects.glow.intensity;
         applyColor(glow.color, effects.glow.color);
 
+        auto &transparency = m_themeOverrides.transparency;
+        transparency.windowOpacitySet = true;
+        transparency.windowOpacity = effects.transparency.windowOpacity;
+        transparency.panelOpacitySet = true;
+        transparency.panelOpacity = effects.transparency.panelOpacity;
+
         auto assignButton = [&](QW::ButtonRole role,
                                 const QC::Color &fillNormal,
                                 const QC::Color &fillHover,
@@ -851,6 +1062,17 @@ namespace QD
                      palette.textPrimary,
                      palette.accentPrimary.darker(0.3f),
                      true);
+
+        auto &fontOverrides = m_themeOverrides.font;
+        const ThemeFont &themeFont = m_themeDefinition.font();
+        if (themeFont.family[0] != '\0')
+        {
+            fontOverrides.familySet = true;
+            QC::String::strncpy(fontOverrides.family, themeFont.family, sizeof(fontOverrides.family) - 1);
+            fontOverrides.family[sizeof(fontOverrides.family) - 1] = '\0';
+        }
+        fontOverrides.sizeSet = true;
+        fontOverrides.size = themeFont.size;
 
         m_themeOverrides.active = true;
     }
@@ -1022,6 +1244,118 @@ namespace QD
                 if (changed)
                     m_themeOverrides.active = true;
             }
+
+            if (const QC::JSON::Value *transparency = effects->find("transparency"))
+            {
+                bool changed = false;
+                QC::u32 value = 0;
+                if (parseUnsignedOverride(transparency, "windowOpacity", value))
+                {
+                    m_themeOverrides.transparency.windowOpacitySet = true;
+                    m_themeOverrides.transparency.windowOpacity = clampToByte(value);
+                    changed = true;
+                }
+
+                value = 0;
+                if (parseUnsignedOverride(transparency, "panelOpacity", value))
+                {
+                    m_themeOverrides.transparency.panelOpacitySet = true;
+                    m_themeOverrides.transparency.panelOpacity = clampToByte(value);
+                    changed = true;
+                }
+
+                if (changed)
+                    m_themeOverrides.active = true;
+            }
+        }
+
+        if (const QC::JSON::Value *font = overrides->find("font"))
+        {
+            bool changed = false;
+            if (const char *family = stringOrNull(font->find("family")))
+            {
+                m_themeOverrides.font.familySet = true;
+                QC::String::strncpy(m_themeOverrides.font.family, family, sizeof(m_themeOverrides.font.family) - 1);
+                m_themeOverrides.font.family[sizeof(m_themeOverrides.font.family) - 1] = '\0';
+                changed = true;
+            }
+
+            QC::u32 sizeValue = m_themeOverrides.font.size;
+            if (parseUnsignedOverride(font, "size", sizeValue))
+            {
+                if (sizeValue == 0)
+                {
+                    sizeValue = 1;
+                }
+                if (sizeValue > 255)
+                {
+                    sizeValue = 255;
+                }
+                m_themeOverrides.font.sizeSet = true;
+                m_themeOverrides.font.size = static_cast<QC::u8>(sizeValue);
+                changed = true;
+            }
+
+            if (changed)
+                m_themeOverrides.active = true;
+        }
+    }
+
+    void Desktop::parseBackground(const QC::JSON::Value *backgroundValue)
+    {
+        resetBackgroundConfig();
+        if (!backgroundValue || !backgroundValue->isObject())
+            return;
+
+        const char *type = stringOrNull(backgroundValue->find("type"));
+
+        if (type && equalsIgnoreCase(type, "image"))
+        {
+            const char *path = stringOrNull(backgroundValue->find("path"));
+            if (ImageAsset *asset = loadImageAsset(path))
+            {
+                m_backgroundConfig.mode = BackgroundMode::Image;
+                m_backgroundConfig.image = asset;
+
+                const char *modeText = stringOrNull(backgroundValue->find("mode"));
+                if (modeText)
+                {
+                    if (equalsIgnoreCase(modeText, "fit"))
+                        m_backgroundConfig.scaleMode = QG::ImageScaleMode::Fit;
+                    else if (equalsIgnoreCase(modeText, "center"))
+                        m_backgroundConfig.scaleMode = QG::ImageScaleMode::Center;
+                    else if (equalsIgnoreCase(modeText, "tile"))
+                        m_backgroundConfig.scaleMode = QG::ImageScaleMode::Tile;
+                    else if (equalsIgnoreCase(modeText, "fill"))
+                        m_backgroundConfig.scaleMode = QG::ImageScaleMode::Fill;
+                    else if (equalsIgnoreCase(modeText, "original"))
+                        m_backgroundConfig.scaleMode = QG::ImageScaleMode::Original;
+                    else
+                        m_backgroundConfig.scaleMode = QG::ImageScaleMode::Stretch;
+                }
+            }
+            return;
+        }
+
+        m_backgroundConfig.mode = BackgroundMode::Gradient;
+        if (const char *top = stringOrNull(backgroundValue->find("top")))
+        {
+            QW::Color c;
+            if (parseHexColor(top, &c))
+            {
+                m_backgroundConfig.topColor = c;
+                m_backgroundConfig.topOverride = true;
+            }
+        }
+
+        if (const char *bottom = stringOrNull(backgroundValue->find("bottom")))
+        {
+            QW::Color c;
+            if (parseHexColor(bottom, &c))
+            {
+                m_backgroundConfig.bottomColor = c;
+                m_backgroundConfig.bottomOverride = true;
+            }
         }
     }
 
@@ -1135,6 +1469,18 @@ namespace QD
             {
                 snapshot.buttonStyles[i].borderWidth = width;
             }
+        }
+
+        if (m_themeOverrides.font.sizeSet)
+        {
+            float scale = (m_themeOverrides.font.size > 0)
+                              ? static_cast<float>(m_themeOverrides.font.size) / BASE_THEME_FONT_SIZE
+                              : 1.0f;
+            if (scale < 0.5f)
+                scale = 0.5f;
+            else if (scale > 4.0f)
+                scale = 4.0f;
+            snapshot.metrics.textScale = scale;
         }
 
         const auto &shadow = m_themeOverrides.effects.shadow;
@@ -1298,11 +1644,27 @@ namespace QD
         {
             colors.windowShadow.a = 0;
         }
+
+        if (m_themeOverrides.transparency.panelOpacitySet)
+        {
+            const QC::u8 alpha = m_themeOverrides.transparency.panelOpacity;
+            colors.topBarBg.a = alpha;
+            colors.sidebarBg.a = alpha;
+            colors.taskbarBg.a = alpha;
+        }
+
+        if (m_themeOverrides.transparency.windowOpacitySet)
+        {
+            const QC::u8 alpha = m_themeOverrides.transparency.windowOpacity;
+            colors.windowBg.a = alpha;
+            colors.windowTitleBg.a = alpha;
+        }
     }
 
     bool Desktop::tryInitializeFromJson()
     {
         resetThemeOverrides();
+        resetBackgroundConfig();
 
         // NOTE: Our FAT32 layer currently does not implement Long File Name (LFN) entries.
         // build.sh copies project-root desktop.json into the ramdisk as an 8.3 name: /DESKTOP.JSN
@@ -1466,6 +1828,132 @@ namespace QD
 
                 created = button;
             }
+            else if (QC::String::strcmp(type, "image") == 0)
+            {
+                auto *imageView = new QW::Controls::ImageView(m_desktopWindow, bounds);
+
+                if (const QC::JSON::Value *visibleValue = controlValue->find("visible"))
+                {
+                    if (visibleValue->isBool())
+                        imageView->setVisible(visibleValue->asBool(true));
+                }
+
+                if (const char *modeText = stringOrNull(controlValue->find("mode")))
+                {
+                    QG::ImageScaleMode mode = QG::ImageScaleMode::Stretch;
+                    if (equalsIgnoreCase(modeText, "fit"))
+                        mode = QG::ImageScaleMode::Fit;
+                    else if (equalsIgnoreCase(modeText, "center"))
+                        mode = QG::ImageScaleMode::Center;
+                    else if (equalsIgnoreCase(modeText, "tile"))
+                        mode = QG::ImageScaleMode::Tile;
+                    else if (equalsIgnoreCase(modeText, "fill"))
+                        mode = QG::ImageScaleMode::Fill;
+                    else if (equalsIgnoreCase(modeText, "original"))
+                        mode = QG::ImageScaleMode::Original;
+                    imageView->setScaleMode(mode);
+                }
+
+                const char *path = stringOrNull(controlValue->find("path"));
+                if (ImageAsset *asset = loadImageAsset(path))
+                {
+                    imageView->setImage(&asset->surface);
+                }
+                else if (path)
+                {
+                    const char *warnId = id ? id : "<unnamed>";
+                    QC_LOG_WARN(LOG_MODULE, "Image control '%s' missing or failed to load '%s'", warnId, path);
+                }
+
+                created = imageView;
+            }
+            else if (QC::String::strcmp(type, "slider") == 0)
+            {
+                // Slider is backed by ScrollBar (horizontal by default)
+                QW::Controls::ScrollOrientation orient = QW::Controls::ScrollOrientation::Horizontal;
+                if (const char *orientText = stringOrNull(controlValue->find("orientation")))
+                {
+                    if (equalsIgnoreCase(orientText, "vertical"))
+                        orient = QW::Controls::ScrollOrientation::Vertical;
+                    else if (equalsIgnoreCase(orientText, "horizontal"))
+                        orient = QW::Controls::ScrollOrientation::Horizontal;
+                }
+
+                auto *slider = new QW::Controls::ScrollBar(m_desktopWindow, bounds, orient);
+
+                if (const QC::JSON::Value *clickToMaxV = controlValue->find("clickToMax"))
+                {
+                    if (clickToMaxV->isBool())
+                        slider->setClickToMax(clickToMaxV->asBool(false));
+                }
+
+                if (const QC::JSON::Value *minV = controlValue->find("min"))
+                {
+                    if (minV->isNumber())
+                        slider->setMinimum(static_cast<QC::i32>(minV->asNumber(0.0)));
+                }
+
+                if (const QC::JSON::Value *maxV = controlValue->find("max"))
+                {
+                    if (maxV->isNumber())
+                        slider->setMaximum(static_cast<QC::i32>(maxV->asNumber(100.0)));
+                }
+
+                if (const QC::JSON::Value *valueV = controlValue->find("value"))
+                {
+                    if (valueV->isNumber())
+                        slider->setValue(static_cast<QC::i32>(valueV->asNumber(0.0)));
+                }
+
+                if (const QC::JSON::Value *pageV = controlValue->find("pageSize"))
+                {
+                    if (pageV->isNumber())
+                        slider->setPageSize(static_cast<QC::u32>(pageV->asNumber(10.0)));
+                }
+
+                if (const QC::JSON::Value *smallV = controlValue->find("smallStep"))
+                {
+                    if (smallV->isNumber())
+                        slider->setSmallStep(static_cast<QC::i32>(smallV->asNumber(1.0)));
+                }
+
+                if (const QC::JSON::Value *largeV = controlValue->find("largeStep"))
+                {
+                    if (largeV->isNumber())
+                        slider->setLargeStep(static_cast<QC::i32>(largeV->asNumber(10.0)));
+                }
+
+                if (const char *track = stringOrNull(controlValue->find("track")))
+                {
+                    QW::Color c;
+                    if (parseHexColor(track, &c))
+                        slider->setTrackColor(c);
+                }
+
+                if (const char *thumb = stringOrNull(controlValue->find("thumb")))
+                {
+                    QW::Color c;
+                    if (parseHexColor(thumb, &c))
+                        slider->setThumbColor(c);
+                }
+
+                if (const char *bg = stringOrNull(controlValue->find("background")))
+                {
+                    QW::Color c;
+                    if (parseHexColor(bg, &c))
+                        slider->setBackgroundColor(c);
+                }
+
+                if (const char *action = stringOrNull(controlValue->find("action")))
+                {
+                    if (equalsIgnoreCase(action, "openLogin"))
+                    {
+                        slider->setScrollChangeHandler(&onJsonSliderOpenLogin, this);
+                    }
+                }
+
+                created = slider;
+            }
 
             if (!created)
                 return;
@@ -1541,6 +2029,7 @@ namespace QD
         recomputeTaskbarWindowBase();
 
         parseThemeOverrides(desktop->find("theme"));
+        parseBackground(desktop->find("background"));
 
         DesktopColors colors = currentColors();
         applyAccent(colors);
@@ -1938,8 +2427,8 @@ namespace QD
             return;
 
         const auto &style = QW::StyleSystem::instance().currentStyle();
-        QW::Color top = style.palette.desktopBackgroundTop;
-        QW::Color bottom = style.palette.desktopBackgroundBottom;
+        QW::Color top = m_backgroundConfig.topOverride ? m_backgroundConfig.topColor : style.palette.desktopBackgroundTop;
+        QW::Color bottom = m_backgroundConfig.bottomOverride ? m_backgroundConfig.bottomColor : style.palette.desktopBackgroundBottom;
 
         QW::Rect bounds = {0, 0, m_screenWidth, m_screenHeight};
         QG::IPainter *painter = m_desktopWindow->painter();
@@ -1953,6 +2442,15 @@ namespace QD
         else
         {
             painter->fillGradientV(bounds, top, bottom);
+        }
+
+        if (m_backgroundConfig.mode == BackgroundMode::Image && m_backgroundConfig.image && m_backgroundConfig.image->surface.isValid())
+        {
+            QG::blitImage(painter,
+                          m_backgroundConfig.image->surface,
+                          bounds,
+                          m_backgroundConfig.scaleMode,
+                          m_backgroundScratch);
         }
     }
 

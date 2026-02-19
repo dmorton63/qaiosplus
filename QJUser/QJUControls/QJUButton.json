@@ -1,0 +1,24 @@
+{
+    "id": "SaveButton",
+    "type": "Button",
+    "x": 10,
+    "y": 445,
+    "width": 80,
+    "height": 24,
+    "text": "Save",
+    "visual": {
+        "normal": {
+            "background": "#303030",
+            "border": "#505050"
+        },
+        "hover": {
+            "background": "#404040",
+            "border": "#707070"
+        },
+        "pressed": {
+            "background": "#202020",
+            "border": "#909090"
+        }
+    },
+    "onClick": "Terminal.SaveLog"
+}

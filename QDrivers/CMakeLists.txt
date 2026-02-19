@@ -1,6 +1,7 @@
 add_library(QDrivers STATIC
     src/QDrvTimer.cpp
     src/QDrvBGA.cpp
+    src/QDrvVmwareSVGA.cpp
 )
 
 target_include_directories(QDrivers PUBLIC include)

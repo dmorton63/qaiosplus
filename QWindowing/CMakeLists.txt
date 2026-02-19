@@ -4,6 +4,9 @@ add_library(QWindowing STATIC
     src/QWFramebuffer.cpp
     src/QWFramebufferBackend.cpp
     src/QWCompositor.cpp
+    src/QWFramebufferPresentBackend.cpp
+    src/QWVmwareSVGAPresentBackend.cpp
+    src/QWMessageBus.cpp
     src/QWRenderer.cpp
     src/QWStyleRenderer.cpp
     src/QWStyleTypes.cpp
@@ -15,6 +18,7 @@ target_include_directories(QWindowing PUBLIC include)
 target_link_libraries(QWindowing PUBLIC
     QCommon
     QGraphics
+    QDrivers
     QEvent
     QKMemory
     QWControls

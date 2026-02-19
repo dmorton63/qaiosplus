@@ -26,7 +26,29 @@ set(KERNEL_COMPILE_FLAGS
 set(CMAKE_POSITION_INDEPENDENT_CODE OFF)
 
 # Add subdirectories
-add_subdirectory(QCommon)
+#
+# NOTE: This project uses CMake; you do not create per-folder Makefiles manually.
+# Each module directory provides a CMakeLists.txt, and CMake generates build files.
+
+# Umbrella target kept for compatibility with existing kernel/module linking.
+add_library(QCommon INTERFACE)
+target_compile_options(QCommon INTERFACE ${KERNEL_COMPILE_FLAGS})
+
+# Core/support libraries (folder restructure)
+add_subdirectory(QCCore)
+add_subdirectory(QCMath)
+add_subdirectory(QCSerialization)
+add_subdirectory(QUICommon)
+add_subdirectory(QCommand)
+
+target_link_libraries(QCommon INTERFACE
+    QCCore
+    QCMath
+    QCSerialization
+    QUICommon
+    QCommand
+)
+
 add_subdirectory(QKernel)
 add_subdirectory(QKMemory)
 add_subdirectory(QArch)

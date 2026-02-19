@@ -2,6 +2,7 @@
 // Namespace: QKDrv::XHCI
 
 #include "xhci_internal.h"
+#include "QArchCPU.h"
 #include "QKMemTranslator.h"
 #include "QCLogger.h"
 #include "QCString.h"
@@ -48,6 +49,7 @@ namespace QKDrv
         // USB class codes
         constexpr QC::u8 USB_CLASS_HID = 0x03;
         constexpr QC::u8 USB_SUBCLASS_BOOT = 0x01;
+        constexpr QC::u8 USB_PROTOCOL_KEYBOARD = 0x01;
         constexpr QC::u8 USB_PROTOCOL_MOUSE = 0x02;
 
         // Extended capability IDs
@@ -168,8 +170,63 @@ namespace QKDrv
             }
         }
 
+        // HIDMouseDriver implementation
+        HIDMouseDriver::HIDMouseDriver(XHCIControllerImpl *controller)
+            : m_controller(controller), m_callback(nullptr), m_x(0), m_y(0), m_minX(0), m_minY(0), m_maxX(1023), m_maxY(767), m_buttons(0)
+        {
+        }
+
+        void HIDMouseDriver::poll()
+        {
+            if (m_controller)
+            {
+                m_controller->poll();
+            }
+        }
+
+        void HIDMouseDriver::setBounds(QC::i32 minX, QC::i32 minY, QC::i32 maxX, QC::i32 maxY)
+        {
+            m_minX = minX;
+            m_minY = minY;
+            m_maxX = maxX;
+            m_maxY = maxY;
+
+            // Center cursor when bounds are (re)applied.
+            m_x = (minX + maxX) / 2;
+            m_y = (minY + maxY) / 2;
+        }
+
+        void HIDMouseDriver::updateDelta(QC::i32 dx, QC::i32 dy, QC::i32 wheel, QC::u8 buttons)
+        {
+            // Keep behavior consistent with PS/2 driver.
+            m_x += dx;
+            m_y += dy;
+
+            if (m_x < m_minX)
+                m_x = m_minX;
+            if (m_x > m_maxX)
+                m_x = m_maxX;
+            if (m_y < m_minY)
+                m_y = m_minY;
+            if (m_y > m_maxY)
+                m_y = m_maxY;
+
+            m_buttons = buttons;
+
+            if (m_callback)
+            {
+                MouseReport report;
+                report.x = dx;
+                report.y = dy;
+                report.wheel = wheel;
+                report.buttons = m_buttons;
+                report.isAbsolute = false;
+                m_callback(report);
+            }
+        }
+
         XHCIControllerImpl::XHCIControllerImpl(QArch::PCIDevice *pciDevice)
-            : m_pciDevice(pciDevice), m_mmioBase(0), m_capRegs(nullptr), m_opRegs(nullptr), m_doorbells(nullptr), m_portRegs(nullptr), m_interrupter(nullptr), m_portCount(0), m_maxSlots(0), m_maxIntrs(0), m_pageSize(4096), m_contextSize(32), m_dcbaa(nullptr), m_commandRing(nullptr), m_commandEnqueue(0), m_commandCycle(true), m_eventRing(nullptr), m_erst(nullptr), m_eventDequeue(0), m_eventCycle(true), m_inputContext(nullptr), m_deviceCount(0), m_tabletSlot(0), m_commandPending(false), m_lastCompletionCode(CompletionCode::Invalid), m_lastSlotId(0), m_transferPending(false), m_transferCompletionCode(CompletionCode::Invalid), m_mouseCallback(nullptr), m_screenWidth(1024), m_screenHeight(768), m_tabletDriver(nullptr)
+            : m_pciDevice(pciDevice), m_mmioBase(0), m_capRegs(nullptr), m_opRegs(nullptr), m_doorbells(nullptr), m_portRegs(nullptr), m_interrupter(nullptr), m_portCount(0), m_maxSlots(0), m_maxIntrs(0), m_pageSize(4096), m_contextSize(32), m_dcbaa(nullptr), m_commandRing(nullptr), m_commandEnqueue(0), m_commandCycle(true), m_eventRing(nullptr), m_erst(nullptr), m_eventDequeue(0), m_eventCycle(true), m_inputContext(nullptr), m_deviceCount(0), m_tabletSlot(0), m_mouseSlot(0), m_commandPending(false), m_lastCompletionCode(CompletionCode::Invalid), m_lastSlotId(0), m_transferPending(false), m_transferCompletionCode(CompletionCode::Invalid), m_mouseCallback(nullptr), m_screenWidth(1024), m_screenHeight(768), m_tabletDriver(nullptr), m_mouseDriver(nullptr)
         {
             QC_LOG_INFO("xHCI", "Constructor body entered");
 
@@ -289,8 +346,8 @@ namespace QKDrv
             // Wait for controller to start
             for (int i = 0; i < 100 && (m_opRegs->usbsts & STS_HCH); ++i)
             {
-                for (volatile int j = 0; j < 10000; ++j)
-                    ;
+                for (int j = 0; j < 10000; ++j)
+                    cpu_relax();
             }
 
             if (m_opRegs->usbsts & STS_HCH)
@@ -314,8 +371,8 @@ namespace QKDrv
                 m_opRegs->usbcmd &= ~CMD_RUN;
                 for (int i = 0; i < 100 && !(m_opRegs->usbsts & STS_HCH); ++i)
                 {
-                    for (volatile int j = 0; j < 10000; ++j)
-                        ;
+                    for (int j = 0; j < 10000; ++j)
+                        cpu_relax();
                 }
             }
             QC_LOG_INFO("xHCI", "xHCI controller shutdown");
@@ -347,8 +404,8 @@ namespace QKDrv
                         {
                             if (!(*cap & (1 << 16)))
                                 break;
-                            for (volatile int j = 0; j < 10000; ++j)
-                                ;
+                            for (int j = 0; j < 10000; ++j)
+                                cpu_relax();
                         }
 
                         if (*cap & (1 << 16))
@@ -383,23 +440,23 @@ namespace QKDrv
             m_opRegs->usbcmd &= ~CMD_RUN;
             for (int i = 0; i < 100 && !(m_opRegs->usbsts & STS_HCH); ++i)
             {
-                for (volatile int j = 0; j < 10000; ++j)
-                    ;
+                for (int j = 0; j < 10000; ++j)
+                    cpu_relax();
             }
 
             // Reset
             m_opRegs->usbcmd |= CMD_HCRST;
             for (int i = 0; i < 1000 && (m_opRegs->usbcmd & CMD_HCRST); ++i)
             {
-                for (volatile int j = 0; j < 10000; ++j)
-                    ;
+                for (int j = 0; j < 10000; ++j)
+                    cpu_relax();
             }
 
             // Wait for CNR to clear
             for (int i = 0; i < 1000 && (m_opRegs->usbsts & STS_CNR); ++i)
             {
-                for (volatile int j = 0; j < 10000; ++j)
-                    ;
+                for (int j = 0; j < 10000; ++j)
+                    cpu_relax();
             }
 
             QC_LOG_INFO("xHCI", "XHCIControllerImpl reset complete");
@@ -537,8 +594,8 @@ namespace QKDrv
                 {
                     return m_lastCompletionCode == CompletionCode::Success;
                 }
-                for (volatile int j = 0; j < 1000; ++j)
-                    ;
+                for (int j = 0; j < 1000; ++j)
+                    cpu_relax();
             }
 
             QC_LOG_WARN("xHCI", "Command timeout");
@@ -750,49 +807,68 @@ namespace QKDrv
             for (QC::usize i = 0; i < m_deviceCount; ++i)
             {
                 DeviceInfo &dev = m_devices[i];
-                if (dev.slotId == slotId && dev.isTablet)
+                if (dev.slotId == slotId && (dev.isTablet || dev.isMouse))
                 {
                     if (code == CompletionCode::Success || code == CompletionCode::ShortPacket)
                     {
-                        // Parse HID report from the device's DMA buffer
-                        // For QEMU tablet: buttons(1) + x(2) + y(2) + wheel(1)
                         QC::u8 *data = dev.hidBuffer;
-                        if (data && m_tabletDriver)
+
+                        if (dev.isTablet)
                         {
-                            QC::u8 buttons = data[0];
-                            QC::u16 absX = data[1] | (data[2] << 8);
-                            QC::u16 absY = data[3] | (data[4] << 8);
-
-                            QC::u32 logicalMaxX = dev.logicalMaxX ? dev.logicalMaxX : 0x7FFF;
-                            QC::u32 logicalMaxY = dev.logicalMaxY ? dev.logicalMaxY : 0x7FFF;
-
-                            if (logicalMaxX == 0)
-                                logicalMaxX = 0x7FFF;
-                            if (logicalMaxY == 0)
-                                logicalMaxY = 0x7FFF;
-
-                            if (absX > logicalMaxX)
-                                absX = static_cast<QC::u16>(logicalMaxX);
-                            if (absY > logicalMaxY)
-                                absY = static_cast<QC::u16>(logicalMaxY);
-
-                            QC::i32 x = 0;
-                            QC::i32 y = 0;
-                            QC::u32 widthRange = (m_screenWidth > 0) ? (m_screenWidth - 1) : 0;
-                            QC::u32 heightRange = (m_screenHeight > 0) ? (m_screenHeight - 1) : 0;
-
-                            if (logicalMaxX && widthRange)
+                            // For QEMU tablet: buttons(1) + x(2) + y(2) + wheel(1)
+                            if (data && m_tabletDriver)
                             {
-                                x = static_cast<QC::i32>((static_cast<QC::u64>(absX) * widthRange) /
-                                                         logicalMaxX);
-                            }
-                            if (logicalMaxY && heightRange)
-                            {
-                                y = static_cast<QC::i32>((static_cast<QC::u64>(absY) * heightRange) /
-                                                         logicalMaxY);
-                            }
+                                QC::u8 buttons = data[0];
+                                QC::u16 absX = data[1] | (data[2] << 8);
+                                QC::u16 absY = data[3] | (data[4] << 8);
 
-                            m_tabletDriver->updatePosition(x, y, buttons);
+                                QC::u32 logicalMaxX = dev.logicalMaxX ? dev.logicalMaxX : 0x7FFF;
+                                QC::u32 logicalMaxY = dev.logicalMaxY ? dev.logicalMaxY : 0x7FFF;
+
+                                if (logicalMaxX == 0)
+                                    logicalMaxX = 0x7FFF;
+                                if (logicalMaxY == 0)
+                                    logicalMaxY = 0x7FFF;
+
+                                if (absX > logicalMaxX)
+                                    absX = static_cast<QC::u16>(logicalMaxX);
+                                if (absY > logicalMaxY)
+                                    absY = static_cast<QC::u16>(logicalMaxY);
+
+                                QC::i32 x = 0;
+                                QC::i32 y = 0;
+                                QC::u32 widthRange = (m_screenWidth > 0) ? (m_screenWidth - 1) : 0;
+                                QC::u32 heightRange = (m_screenHeight > 0) ? (m_screenHeight - 1) : 0;
+
+                                if (logicalMaxX && widthRange)
+                                {
+                                    x = static_cast<QC::i32>((static_cast<QC::u64>(absX) * widthRange) /
+                                                             logicalMaxX);
+                                }
+                                if (logicalMaxY && heightRange)
+                                {
+                                    y = static_cast<QC::i32>((static_cast<QC::u64>(absY) * heightRange) /
+                                                             logicalMaxY);
+                                }
+
+                                m_tabletDriver->updatePosition(x, y, buttons);
+                            }
+                        }
+                        else if (dev.isMouse)
+                        {
+                            if (data && m_mouseDriver)
+                            {
+                                // Boot-protocol mouse: buttons + dx + dy (+ optional wheel)
+                                const QC::u8 buttons = data[0] & 0x07;
+                                const QC::i32 dx = static_cast<QC::i8>(data[1]);
+                                const QC::i32 dy = static_cast<QC::i8>(data[2]);
+                                QC::i32 wheel = 0;
+                                if (dev.hidMaxPacket >= 4)
+                                {
+                                    wheel = static_cast<QC::i8>(data[3]);
+                                }
+                                m_mouseDriver->updateDelta(dx, dy, wheel, buttons);
+                            }
                         }
                     }
 
@@ -1011,8 +1087,8 @@ namespace QKDrv
             for (int i = 0; i < 5000 && m_transferPending; ++i)
             {
                 processEvents();
-                for (volatile int j = 0; j < 1000; ++j)
-                    ;
+                for (int j = 0; j < 1000; ++j)
+                    cpu_relax();
             }
 
             if (m_transferPending)
@@ -1082,10 +1158,12 @@ namespace QKDrv
             return controlTransfer(slotId, 0x00, USB_REQ_SET_CONFIGURATION, configValue, 0, nullptr, 0);
         }
 
-        bool XHCIControllerImpl::setHIDBootProtocol(QC::u8 slotId)
+        bool XHCIControllerImpl::setHIDProtocol(QC::u8 slotId, QC::u8 interfaceNumber, QC::u16 protocol)
         {
-            // SET_PROTOCOL request: bmRequestType=0x21, bRequest=0x0B, wValue=0 (boot protocol)
-            return controlTransfer(slotId, 0x21, USB_REQ_SET_PROTOCOL, 0, 0, nullptr, 0);
+            // SET_PROTOCOL request: bmRequestType=0x21, bRequest=0x0B
+            // wValue: 0 = boot protocol, 1 = report protocol
+            // wIndex: interface number
+            return controlTransfer(slotId, 0x21, USB_REQ_SET_PROTOCOL, protocol, interfaceNumber, nullptr, 0);
         }
 
         bool XHCIControllerImpl::configureEndpoint(QC::u8 slotId, const USBEndpointDescriptor &ep)
@@ -1188,6 +1266,14 @@ namespace QKDrv
                 dev.hidBuffer = reinterpret_cast<QC::u8 *>(hidBufferPage.virt);
                 dev.hidBufferPhys = hidBufferPage.phys;
                 QC_LOG_INFO("xHCI", "HID buffer: phys=0x%lx virt=%p", dev.hidBufferPhys, dev.hidBuffer);
+            }
+
+            // Clear the report buffer before each submission so short/partial writes can't
+            // leave stale dx/dy data and cause phantom motion.
+            if (dev.hidBuffer && dev.hidMaxPacket)
+            {
+                const QC::u32 clearLen = (dev.hidMaxPacket > 4096u) ? 4096u : dev.hidMaxPacket;
+                QC::String::memset(dev.hidBuffer, 0, clearLen);
             }
 
             TRB *ring = dev.transferRing;
@@ -1304,6 +1390,7 @@ namespace QKDrv
             dev.speed = speed;
             dev.isHID = false;
             dev.isTablet = false;
+            dev.isMouse = false;
             dev.transferRing = nullptr;
             dev.hidBuffer = nullptr;
             dev.hidBufferPhys = 0;
@@ -1311,11 +1398,12 @@ namespace QKDrv
             dev.logicalMaxY = 0x7FFF;
 
             // Look for HID interface (this will call configureEndpoint which updates dev)
-            bool isTablet = identifyHID(slotId, dev, configData, 256);
-            dev.isHID = isTablet;
-            dev.isTablet = isTablet;
+            HIDDeviceKind hidKind = identifyHID(slotId, dev, configData, 256);
+            dev.isHID = hidKind != HIDDeviceKind::None;
+            dev.isTablet = hidKind == HIDDeviceKind::Tablet;
+            dev.isMouse = hidKind == HIDDeviceKind::Mouse;
 
-            if (isTablet)
+            if (dev.isTablet)
             {
                 m_tabletSlot = slotId;
                 // Create tablet driver
@@ -1326,6 +1414,15 @@ namespace QKDrv
                 // Schedule first interrupt transfer (device is now in array with transferRing set)
                 scheduleInterruptIn(dev);
             }
+            else if (dev.isMouse)
+            {
+                m_mouseSlot = slotId;
+                m_mouseDriver = new HIDMouseDriver(this);
+                m_mouseDriver->setBounds(0, 0, m_screenWidth - 1, m_screenHeight - 1);
+                QC_LOG_INFO("xHCI", "USB mouse detected on slot %u", slotId);
+
+                scheduleInterruptIn(dev);
+            }
 
             // Clear enumeration flag
             if (port < 32)
@@ -1333,13 +1430,13 @@ namespace QKDrv
             return true;
         }
 
-        bool XHCIControllerImpl::identifyHID(QC::u8 slotId, DeviceInfo &dev, const QC::u8 *configData, QC::u16 length)
+        HIDDeviceKind XHCIControllerImpl::identifyHID(QC::u8 slotId, DeviceInfo &dev, const QC::u8 *configData, QC::u16 length)
         {
             USBConfigDescriptor *config = reinterpret_cast<USBConfigDescriptor *>(
                 const_cast<QC::u8 *>(configData));
 
             if (config->bDescriptorType != USB_DESC_CONFIG)
-                return false;
+                return HIDDeviceKind::None;
 
             QC::u16 totalLen = config->wTotalLength;
             if (totalLen > length)
@@ -1397,42 +1494,67 @@ namespace QKDrv
 
             if (hidIface && hidEp)
             {
+                const bool isBootMouse = (hidIface->bInterfaceSubClass == USB_SUBCLASS_BOOT) &&
+                                         (hidIface->bInterfaceProtocol == USB_PROTOCOL_MOUSE);
+                const bool isBootKeyboard = (hidIface->bInterfaceSubClass == USB_SUBCLASS_BOOT) &&
+                                            (hidIface->bInterfaceProtocol == USB_PROTOCOL_KEYBOARD);
+
+                if (isBootKeyboard)
+                {
+                    QC_LOG_INFO("xHCI", "HID boot keyboard detected (not supported yet)");
+                    return HIDDeviceKind::None;
+                }
+
                 if (hidDesc)
                 {
                     QC::u32 logicalMaxX = dev.logicalMaxX;
                     QC::u32 logicalMaxY = dev.logicalMaxY;
-                    if (fetchHIDLogicalRanges(slotId,
-                                              hidIface->bInterfaceNumber,
-                                              hidDesc->wDescriptorLength,
-                                              logicalMaxX,
-                                              logicalMaxY))
+
+                    // Only tablet-style absolute devices need X/Y logical ranges.
+                    if (!isBootMouse)
                     {
-                        dev.logicalMaxX = logicalMaxX;
-                        dev.logicalMaxY = logicalMaxY;
-                        QC_LOG_INFO("xHCI", "HID logical range: X=%u Y=%u",
-                                    dev.logicalMaxX, dev.logicalMaxY);
-                    }
-                    else
-                    {
-                        QC_LOG_WARN("xHCI", "Using default HID logical range");
+                        if (fetchHIDLogicalRanges(slotId,
+                                                  hidIface->bInterfaceNumber,
+                                                  hidDesc->wDescriptorLength,
+                                                  logicalMaxX,
+                                                  logicalMaxY))
+                        {
+                            dev.logicalMaxX = logicalMaxX;
+                            dev.logicalMaxY = logicalMaxY;
+                            QC_LOG_INFO("xHCI", "HID logical range: X=%u Y=%u",
+                                        dev.logicalMaxX, dev.logicalMaxY);
+                        }
+                        else
+                        {
+                            QC_LOG_WARN("xHCI", "Using default HID logical range");
+                        }
                     }
                 }
 
                 // Set configuration
                 setConfiguration(slotId, config->bConfigurationValue);
 
-                // Set boot protocol for simplicity
-                setHIDBootProtocol(slotId);
+                // Ensure the device is in an expected protocol mode.
+                // Boot protocol is only valid for boot mouse/keyboard; tablets/other HID pointers
+                // should remain in report protocol.
+                if (isBootMouse || isBootKeyboard)
+                {
+                    setHIDProtocol(slotId, hidIface->bInterfaceNumber, 0);
+                }
+                else
+                {
+                    setHIDProtocol(slotId, hidIface->bInterfaceNumber, 1);
+                }
 
                 // Configure the interrupt endpoint
                 configureEndpoint(slotId, *hidEp);
 
                 // Note: scheduleInterruptIn is called from enumerateDevice after device is added
 
-                return true;
+                return isBootMouse ? HIDDeviceKind::Mouse : HIDDeviceKind::Tablet;
             }
 
-            return false;
+            return HIDDeviceKind::None;
         }
 
         void XHCIControllerImpl::poll()
@@ -1510,8 +1632,8 @@ namespace QKDrv
             {
                 if (!(m_portRegs[port].portsc & PORTSC_PR))
                     break;
-                for (volatile int j = 0; j < 10000; ++j)
-                    ;
+                for (int j = 0; j < 10000; ++j)
+                    cpu_relax();
             }
 
             // Clear status change bits

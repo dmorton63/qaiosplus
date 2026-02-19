@@ -5,6 +5,7 @@ add_library(QWControls STATIC
     src/Containers/Panel.cpp
     src/Leaf/Button.cpp
     src/Leaf/Label.cpp
+    src/Leaf/ImageView.cpp
     src/Leaf/ScrollBar.cpp
     src/Leaf/TextBox.cpp
     src/Composite/ComboBox.cpp

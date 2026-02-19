@@ -3,15 +3,47 @@
 
 #include "QWFramebuffer.h"
 #include "QKMemHeap.h"
+#include "QKMemTranslator.h"
 #include "QCMemUtil.h"
+#include "QCBuiltins.h"
+#include "QCLogger.h"
+
+// Provided by the kernel boot code (QKMain.cpp)
+extern QC::u64 getHHDMOffset();
 
 namespace QW
 {
+
+    namespace
+    {
+        inline void memcpy_stream64(void *dst, const void *src, QC::usize bytes)
+        {
+            auto *d = static_cast<QC::u8 *>(dst);
+            auto *s = static_cast<const QC::u8 *>(src);
+
+            QC::usize i = 0;
+            for (; i + sizeof(QC::u64) <= bytes; i += sizeof(QC::u64))
+            {
+                const QC::u64 v = *reinterpret_cast<const QC::u64 *>(s + i);
+                asm volatile("movnti %1, %0" : "=m"(*reinterpret_cast<volatile QC::u64 *>(d + i)) : "r"(v));
+            }
+
+            // Tail bytes (rare for our current 32bpp modes)
+            for (; i < bytes; ++i)
+            {
+                d[i] = s[i];
+            }
+
+            // Ensure streaming stores are globally visible.
+            QC::write_barrier();
+        }
+    }
 
     Framebuffer::Framebuffer()
         : m_buffer(nullptr),
           m_backBuffer(nullptr),
           m_physicalAddress(0),
+          m_frontbufferIsMMIO(false),
           m_width(0),
           m_height(0),
           m_pitch(0),
@@ -36,7 +68,25 @@ namespace QW
                                        QC::u32 width, QC::u32 height,
                                        QC::u32 pitch, PixelFormat format)
     {
-        m_physicalAddress = physicalAddress;
+        // NOTE: Despite the parameter name, Limine may provide a framebuffer address that is
+        // already mapped into the higher-half direct map (HHDM). In that case, treating it as
+        // a physical address and MMIO-mapping it will create a bogus mapping and can #PF.
+        const QC::u64 hhdm = getHHDMOffset();
+        const bool looksLikeHhdmVirt = (hhdm != 0) && (physicalAddress >= static_cast<QC::uptr>(hhdm));
+
+        // If Limine passed an HHDM-mapped virtual address, keep it as a fallback.
+        void *hhdmVirtPtr = nullptr;
+
+        if (looksLikeHhdmVirt)
+        {
+            hhdmVirtPtr = reinterpret_cast<void *>(physicalAddress);
+            m_physicalAddress = static_cast<QC::uptr>(physicalAddress - static_cast<QC::uptr>(hhdm));
+        }
+        else
+        {
+            m_physicalAddress = physicalAddress;
+        }
+
         m_width = width;
         m_height = height;
         m_pitch = pitch;
@@ -59,12 +109,44 @@ namespace QW
             break;
         }
 
-        // Map physical address to virtual
-        // In a real kernel, this would involve page table manipulation
-        m_buffer = reinterpret_cast<void *>(physicalAddress);
+        // Map the physical framebuffer.
+        // NOTE: Even if Limine provides a higher-half direct-map (HHDM-looking) pointer, that
+        // mapping may be cacheable. For device VRAM this can lead to writes not reaching scanout
+        // (blank screen) depending on paging attributes/emulation. Prefer an explicit MMIO mapping
+        // when possible and keep Limine's pointer as a fallback.
+        const QC::usize bufferSize = m_pitch * m_height;
+        const QC::VirtAddr fbVirt = QK::Memory::Translator::instance().mapMMIO(
+            static_cast<QC::PhysAddr>(m_physicalAddress),
+            bufferSize);
+        if (fbVirt)
+        {
+            m_buffer = reinterpret_cast<void *>(fbVirt);
+            m_frontbufferIsMMIO = true;
+        }
+        else if (hhdmVirtPtr)
+        {
+            QC_LOG_WARN("QWFramebuffer", "Framebuffer MMIO map failed; falling back to Limine pointer (virt=0x%llX)",
+                        static_cast<unsigned long long>(reinterpret_cast<QC::uptr>(hhdmVirtPtr)));
+            m_buffer = hhdmVirtPtr;
+            m_frontbufferIsMMIO = false;
+        }
+        else
+        {
+            QC_LOG_WARN("QWFramebuffer", "Failed to map framebuffer MMIO (phys=0x%llX size=0x%llX)",
+                        static_cast<unsigned long long>(m_physicalAddress),
+                        static_cast<unsigned long long>(bufferSize));
+
+            // Last resort: legacy physical-as-pointer.
+            m_buffer = reinterpret_cast<void *>(m_physicalAddress);
+            m_frontbufferIsMMIO = false;
+        }
+
+        QC_LOG_INFO("QWFramebuffer", "Framebuffer mapped (phys=0x%llX virt=0x%llX size=0x%llX)",
+                    static_cast<unsigned long long>(m_physicalAddress),
+                    static_cast<unsigned long long>(reinterpret_cast<QC::uptr>(m_buffer)),
+                    static_cast<unsigned long long>(bufferSize));
 
         // Allocate back buffer for double buffering
-        QC::usize bufferSize = m_pitch * m_height;
         m_backBuffer = QK::Memory::Heap::instance().allocate(bufferSize);
         if (m_backBuffer)
         {
@@ -80,8 +162,23 @@ namespace QW
         if (!m_doubleBuffered || !m_buffer || !m_backBuffer)
             return;
 
-        // Copy back buffer to front buffer
-        memcpy(m_buffer, m_backBuffer, m_pitch * m_height);
+        const QC::usize bytes = m_pitch * m_height;
+
+        // Copy back buffer to front buffer.
+        // If the frontbuffer is a cacheable mapping (HHDM), use non-temporal stores so VRAM
+        // sees the update without requiring an expensive full-cache flush.
+        if (m_frontbufferIsMMIO)
+            memcpy(m_buffer, m_backBuffer, bytes);
+        else
+        {
+            memcpy_stream64(m_buffer, m_backBuffer, bytes);
+
+            // Debug/reliability: some emulated SVGA framebuffers behave poorly when mapped as
+            // cacheable RAM via HHDM. Even with non-temporal stores + sfence, scanout can appear
+            // stale/black. A full cache writeback is expensive, but it makes the write visibility
+            // question unambiguous.
+            QC::wbinvd();
+        }
     }
 
     void Framebuffer::setPixel(QC::u32 x, QC::u32 y, QC::u32 color)

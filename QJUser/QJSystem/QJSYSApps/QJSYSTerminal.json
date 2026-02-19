@@ -1,0 +1,105 @@
+{
+    "parameters": {
+        "title": "System",
+        "fg": "#00FF00",
+        "bg": "#000000",
+        "inputfg": "#FFFFFF",
+        "inputbg": "#202020",
+        "win_bg": "#101010",
+        "ctrl_bg": "#202020",
+        "version": "1.0"
+    },
+    "header": {
+        "name": "TerminalWindow",
+        "version": "{version}",
+        "mode": "DEBUG",
+        "load": "LOAD_ON_USE",
+        "description": "Citadel {title} terminal"
+    },
+    "window": {
+        "type": "Window",
+        "title": "Citadel {title} Terminal",
+        "width": 720,
+        "height": 480,
+        "resizable": true,
+        "movable": true,
+        "background": "{win_bg}"
+    },
+    "controls": [
+        {
+            "id": "TitleBar",
+            "type": "TitleBar",
+            "x": 0,
+            "y": 0,
+            "width": "100%",
+            "height": 28,
+            "background": "{ctrl_bg}",
+            "text": "Citadel {title} Terminal"
+        },
+        {
+            "id": "CloseButton",
+            "type": "CloseButton",
+            "parent": "TitleBar",
+            "align": "right",
+            "width": 24,
+            "height": 24,
+            "margin": 2
+        },
+        {
+            "id": "OutputArea",
+            "type": "TextArea",
+            "x": 10,
+            "y": 40,
+            "width": 660,
+            "height": 360,
+            "readonly": true,
+            "scrollable": true,
+            "font": "monospace",
+            "fontsize": 14,
+            "color": "{fg}",
+            "background": "{bg}",
+            "raisedEdges": true
+        },
+        {
+            "id": "OutputScrollBar",
+            "type": "ScrollBar",
+            "orientation": "vertical",
+            "x": 680,
+            "y": 40,
+            "height": 360,
+            "linkedControl": "OutputArea"
+        },
+        {
+            "id": "InputBox",
+            "type": "TextBox",
+            "x": 10,
+            "y": 410,
+            "width": 660,
+            "height": 28,
+            "font": "monospace",
+            "fontsize": 14,
+            "color": "{inputfg}",
+            "background": "{inputbg}",
+            "raisedEdges": true
+        },
+        {
+            "id": "SaveButton",
+            "type": "Button",
+            "x": 10,
+            "y": 445,
+            "width": 80,
+            "height": 24,
+            "text": "Save",
+            "action": "Terminal.SaveLog"
+        }
+    ],
+    "bindings": {
+        "InputBox.onEnter": "Terminal.ProcessCommand",
+        "OutputScrollBar.onScroll": "OutputArea.Scroll",
+        "CloseButton.onClick": "Window.Close"
+    },
+    "security": {
+        "signature": null,
+        "hash": null
+    }
+}

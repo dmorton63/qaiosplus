@@ -61,6 +61,9 @@ namespace QW
             bool transparent() const { return m_transparent; }
             void setTransparent(bool transparent) { m_transparent = transparent; }
 
+            // Labels are non-interactive by default; they should not intercept mouse hit tests.
+            bool hitTest(int, int) const override { return false; }
+
             // Rendering (override from ControlBase)
             void paint(const PaintContext &context) override;
 

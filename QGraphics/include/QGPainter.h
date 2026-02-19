@@ -94,6 +94,12 @@ namespace QG
         /// Translate origin by delta
         virtual void translate(QC::i32 dx, QC::i32 dy) = 0;
 
+        /// Set scalar applied to the fixed-width font renderer
+        virtual void setTextScale(float scale) = 0;
+
+        /// Get the current text scale
+        virtual float textScale() const = 0;
+
         // ==================== Primitive Drawing ====================
 
         /// Set a single pixel

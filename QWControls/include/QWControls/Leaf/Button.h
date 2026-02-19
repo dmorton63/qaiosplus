@@ -42,6 +42,9 @@ namespace QW
             char m_text[256];
             bool m_pressed = false;
             bool m_hovered = false;
+            int m_pressX = 0;
+            int m_pressY = 0;
+            bool m_hasPressPos = false;
             ButtonRole m_role = ButtonRole::Default;
 
             ButtonClickHandler m_clickHandler = nullptr;

@@ -34,6 +34,7 @@ namespace QW
             IControl *childAt(QC::usize index);
             const IControl *childAt(QC::usize index) const;
 
+            const QC::Vector<IControl *> &children() const { return m_children; }
             IControl *findChild(ControlId id);
             IControl *childAtPoint(QC::i32 x, QC::i32 y);
 

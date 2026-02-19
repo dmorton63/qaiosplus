@@ -1,4 +1,6 @@
 #include "QWWindow.h"
+#include "QWMessageBus.h"
+#include "QWWindowManager.h"
 #include "QWControls/Containers/Panel.h"
 #include "QKEventTypes.h"
 #include <cstring>
@@ -113,11 +115,38 @@ namespace QW
 
     void Window::invalidate()
     {
-        paint();
+        invalidateRect(Rect{0, 0, m_bounds.width, m_bounds.height});
     }
 
-    void Window::invalidateRect(const Rect &)
+    void Window::invalidateRect(const Rect &rect)
     {
+        // Notify compositor of the affected screen region.
+        // `rect` is window-local; convert to screen coordinates.
+        Rect clipped = rect;
+        if (clipped.x < 0)
+            clipped.x = 0;
+        if (clipped.y < 0)
+            clipped.y = 0;
+        const QC::i32 maxW = static_cast<QC::i32>(m_bounds.width);
+        const QC::i32 maxH = static_cast<QC::i32>(m_bounds.height);
+        if (clipped.x > maxW)
+            clipped.x = maxW;
+        if (clipped.y > maxH)
+            clipped.y = maxH;
+        if (static_cast<QC::i32>(clipped.right()) > maxW)
+            clipped.width = static_cast<QC::u32>(maxW - clipped.x);
+        if (static_cast<QC::i32>(clipped.bottom()) > maxH)
+            clipped.height = static_cast<QC::u32>(maxH - clipped.y);
+
+        if (!clipped.isEmpty())
+        {
+            const Rect screenRect{m_bounds.x + clipped.x,
+                                  m_bounds.y + clipped.y,
+                                  clipped.width,
+                                  clipped.height};
+            WindowManager::instance().invalidate(screenRect);
+        }
+
         paint();
     }
 
@@ -128,6 +157,21 @@ namespace QW
 
         if (!ensureSurface(m_bounds.width, m_bounds.height))
             return;
+
+        float textScale = 1.0f;
+        if (const StyleSnapshot *snapshot = m_styleRenderer.styleSnapshot())
+        {
+            textScale = snapshot->metrics.textScale;
+        }
+        else
+        {
+            textScale = StyleSnapshot::fallback().metrics.textScale;
+        }
+        if (textScale <= 0.0f)
+        {
+            textScale = 1.0f;
+        }
+        m_painter.setTextScale(textScale);
 
         FrameContext frameCtx{};
         frameCtx.surfaceBounds = Rect{0, 0, m_bounds.width, m_bounds.height};
@@ -166,7 +210,7 @@ namespace QW
     {
         ensureSurface(w, h);
         if (m_root)
-            m_root->setBounds(Rect{0, 0, (int)w, (int)h});
+            m_root->setBounds(Rect{0, 0, w, h});
         invalidate();
     }
 
@@ -176,6 +220,21 @@ namespace QW
             return false;
 
         return m_root->onEvent(e);
+    }
+
+    void Window::setMessageHandler(MessageHandler handler, void *userData)
+    {
+        m_msgHandler = handler;
+        m_msgUserData = userData;
+    }
+
+    bool Window::handleMessage(const Message &msg)
+    {
+        if (!m_msgHandler)
+        {
+            return false;
+        }
+        return m_msgHandler(this, msg, m_msgUserData);
     }
 
     bool Window::ensureSurface(QC::u32 width, QC::u32 height)

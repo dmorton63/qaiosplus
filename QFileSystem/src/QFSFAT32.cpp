@@ -12,10 +12,180 @@
 namespace QFS
 {
 
+    static inline bool isLowerAlpha(char c)
+    {
+        return c >= 'a' && c <= 'z';
+    }
+
+    static inline bool isUpperAlpha(char c)
+    {
+        return c >= 'A' && c <= 'Z';
+    }
+
+    // FAT "NT reserved" case flags for SFN display:
+    //  - bit 3 (0x08): lowercase base name
+    //  - bit 4 (0x10): lowercase extension
+    static QC::u8 computeNtCaseFlagsForSfnDisplay(const char *name)
+    {
+        if (!name)
+            return 0;
+
+        bool baseHasLower = false;
+        bool baseHasUpper = false;
+        bool extHasLower = false;
+        bool extHasUpper = false;
+
+        int i = 0;
+        int copied = 0;
+        while (name[i] && name[i] != '.' && copied < 8)
+        {
+            if (isLowerAlpha(name[i]))
+                baseHasLower = true;
+            else if (isUpperAlpha(name[i]))
+                baseHasUpper = true;
+            ++i;
+            ++copied;
+        }
+
+        while (name[i] && name[i] != '.')
+            ++i;
+        if (name[i] == '.')
+            ++i;
+
+        copied = 0;
+        while (name[i] && copied < 3)
+        {
+            if (isLowerAlpha(name[i]))
+                extHasLower = true;
+            else if (isUpperAlpha(name[i]))
+                extHasUpper = true;
+            ++i;
+            ++copied;
+        }
+
+        QC::u8 flags = 0;
+        if (baseHasLower && !baseHasUpper)
+            flags |= 0x08;
+        if (extHasLower && !extHasUpper)
+            flags |= 0x10;
+        return flags;
+    }
+
     // FAT32 special values
     constexpr QC::u32 FAT32_EOC = 0x0FFFFFF8;
     constexpr QC::u32 FAT32_BAD = 0x0FFFFFF7;
     constexpr QC::u32 FAT32_FREE = 0x00000000;
+
+    namespace
+    {
+        struct FATLongNameEntry
+        {
+            QC::u8 order;
+            QC::u16 name1[5];
+            QC::u8 attributes;
+            QC::u8 type;
+            QC::u8 checksum;
+            QC::u16 name2[6];
+            QC::u16 firstClusterLow;
+            QC::u16 name3[2];
+        } __attribute__((packed));
+
+        static QC::u8 sfnChecksum(const char sfn[11])
+        {
+            QC::u8 sum = 0;
+            for (int i = 0; i < 11; ++i)
+            {
+                sum = static_cast<QC::u8>(((sum & 1) ? 0x80 : 0) + (sum >> 1) + static_cast<QC::u8>(sfn[i]));
+            }
+            return sum;
+        }
+
+        static inline char lowerAscii(char c)
+        {
+            if (c >= 'A' && c <= 'Z')
+                return static_cast<char>(c + 32);
+            return c;
+        }
+
+        static bool equalsIgnoreCase(const char *a, const char *b)
+        {
+            if (!a || !b)
+                return false;
+            while (*a && *b)
+            {
+                if (lowerAscii(*a) != lowerAscii(*b))
+                    return false;
+                ++a;
+                ++b;
+            }
+            return *a == '\0' && *b == '\0';
+        }
+
+        static void lfnClear(char *buf, QC::usize bufSize, QC::u8 &checksum, bool &valid)
+        {
+            if (buf && bufSize)
+                buf[0] = '\0';
+            checksum = 0;
+            valid = false;
+        }
+
+        static void lfnPrependFragment(const char *fragment, char *pending, QC::usize pendingSize)
+        {
+            if (!fragment || !pending || pendingSize == 0)
+                return;
+
+            char combined[256];
+            QC::String::memset(combined, 0, sizeof(combined));
+            QC::String::strncpy(combined, fragment, sizeof(combined) - 1);
+            combined[sizeof(combined) - 1] = '\0';
+
+            const QC::usize used = QC::String::strlen(combined);
+            if (used + 1 < sizeof(combined))
+            {
+                QC::String::strncpy(combined + used, pending, sizeof(combined) - 1 - used);
+                combined[sizeof(combined) - 1] = '\0';
+            }
+
+            QC::String::strncpy(pending, combined, pendingSize - 1);
+            pending[pendingSize - 1] = '\0';
+        }
+
+        static void lfnConsume(const FATLongNameEntry &lfn, char *pending, QC::usize pendingSize)
+        {
+            char frag[64];
+            QC::String::memset(frag, 0, sizeof(frag));
+            QC::usize outIdx = 0;
+            bool ended = false;
+
+            auto emit = [&](QC::u16 ch)
+            {
+                if (ended)
+                    return;
+                if (ch == 0x0000)
+                {
+                    ended = true;
+                    return;
+                }
+                if (ch == 0xFFFF)
+                    return;
+
+                char c = (ch <= 0x007F) ? static_cast<char>(ch & 0xFF) : '?';
+                if (outIdx + 1 < sizeof(frag))
+                    frag[outIdx++] = c;
+            };
+
+            for (int i = 0; i < 5; ++i)
+                emit(lfn.name1[i]);
+            for (int i = 0; i < 6; ++i)
+                emit(lfn.name2[i]);
+            for (int i = 0; i < 2; ++i)
+                emit(lfn.name3[i]);
+
+            frag[outIdx] = '\0';
+            if (outIdx > 0)
+                lfnPrependFragment(frag, pending, pendingSize);
+        }
+    }
 
     FAT32::FAT32(BlockDevice *device)
         : m_device(device), m_fatStart(0), m_dataStart(0), m_clusterSize(0), m_totalClusters(0), m_clusterBuffer(nullptr)
@@ -176,9 +346,10 @@ namespace QFS
             for (QC::u32 i = 0; i < entriesPerCluster; ++i, ++index)
             {
                 FAT32DirEntry &entry = entries[i];
-                if (entry.name[0] == 0x00)
+                const unsigned char name0 = static_cast<unsigned char>(entry.name[0]);
+                if (name0 == 0x00)
                     return false; // End of directory
-                if (entry.name[0] == 0xE5)
+                if (name0 == 0xE5)
                     continue; // Deleted
                 if ((entry.attributes & FAT32Attr::LongName) == FAT32Attr::LongName)
                     continue;
@@ -247,6 +418,7 @@ namespace QFS
             QC::String::memset(&createdEntry, 0, sizeof(createdEntry));
             QC::String::memcpy(createdEntry.name, fatName, 11);
             createdEntry.attributes = FAT32Attr::Archive;
+            createdEntry.reserved = computeNtCaseFlagsForSfnDisplay(baseName);
             createdEntry.clusterHigh = 0;
             createdEntry.clusterLow = 0;
             createdEntry.size = 0;
@@ -490,6 +662,7 @@ namespace QFS
         handle->startCluster = startCluster;
         handle->currentCluster = startCluster;
         handle->entryIndex = 0;
+        lfnClear(handle->pendingLongName, sizeof(handle->pendingLongName), handle->pendingLongNameChecksum, handle->pendingLongNameValid);
 
         Directory *dir = new Directory();
         dir->setFileSystem(this);
@@ -534,18 +707,66 @@ namespace QFS
             while (handle->entryIndex < entriesPerCluster)
             {
                 FAT32DirEntry &e = entries[handle->entryIndex++];
-                if (e.name[0] == 0x00)
+                const unsigned char name0 = static_cast<unsigned char>(e.name[0]);
+                if (name0 == 0x00)
                     return false;
-                if (e.name[0] == 0xE5)
+                if (name0 == 0xE5)
+                {
+                    lfnClear(handle->pendingLongName, sizeof(handle->pendingLongName), handle->pendingLongNameChecksum, handle->pendingLongNameValid);
                     continue;
-                if ((e.attributes & FAT32Attr::LongName) == FAT32Attr::LongName)
-                    continue;
-                if (e.attributes & FAT32Attr::VolumeId)
-                    continue;
-                if (e.name[0] == '.')
-                    continue;
+                }
 
-                parseName(e.name, entry->name);
+                if ((e.attributes & FAT32Attr::LongName) == FAT32Attr::LongName)
+                {
+                    const FATLongNameEntry &lfn = *reinterpret_cast<const FATLongNameEntry *>(&e);
+                    if (lfn.attributes == FAT32Attr::LongName && lfn.type == 0)
+                    {
+                        const bool isStart = (lfn.order & 0x40) != 0;
+                        if (isStart)
+                        {
+                            lfnClear(handle->pendingLongName, sizeof(handle->pendingLongName), handle->pendingLongNameChecksum, handle->pendingLongNameValid);
+                            handle->pendingLongNameChecksum = lfn.checksum;
+                            handle->pendingLongNameValid = true;
+                        }
+
+                        if (handle->pendingLongNameValid && handle->pendingLongNameChecksum == lfn.checksum)
+                        {
+                            lfnConsume(lfn, handle->pendingLongName, sizeof(handle->pendingLongName));
+                        }
+                        else
+                        {
+                            lfnClear(handle->pendingLongName, sizeof(handle->pendingLongName), handle->pendingLongNameChecksum, handle->pendingLongNameValid);
+                        }
+                    }
+                    continue;
+                }
+
+                if (e.attributes & FAT32Attr::VolumeId)
+                {
+                    lfnClear(handle->pendingLongName, sizeof(handle->pendingLongName), handle->pendingLongNameChecksum, handle->pendingLongNameValid);
+                    continue;
+                }
+                if (name0 == static_cast<unsigned char>('.'))
+                {
+                    lfnClear(handle->pendingLongName, sizeof(handle->pendingLongName), handle->pendingLongNameChecksum, handle->pendingLongNameValid);
+                    continue;
+                }
+
+                const bool hasValidLfn = handle->pendingLongNameValid &&
+                                         handle->pendingLongName[0] != '\0' &&
+                                         sfnChecksum(e.name) == handle->pendingLongNameChecksum;
+
+                if (hasValidLfn)
+                {
+                    QC::String::strncpy(entry->name, handle->pendingLongName, sizeof(entry->name) - 1);
+                    entry->name[sizeof(entry->name) - 1] = '\0';
+                }
+                else
+                {
+                    parseName(e, entry->name);
+                }
+
+                lfnClear(handle->pendingLongName, sizeof(handle->pendingLongName), handle->pendingLongNameChecksum, handle->pendingLongNameValid);
                 entry->type = (e.attributes & FAT32Attr::Directory) ? FileType::Directory : FileType::Regular;
                 entry->size = e.size;
                 return true;
@@ -578,7 +799,7 @@ namespace QFS
         if (!entry)
             return QC::Status::NotFound;
 
-        parseName(entry->name, info->name);
+        parseName(*entry, info->name);
         info->type = (entry->attributes & FAT32Attr::Directory) ? FileType::Directory : FileType::Regular;
         info->size = entry->size;
         // TODO: Convert FAT32 time format to Unix timestamp
@@ -661,6 +882,7 @@ namespace QFS
         formatName(baseName, fatName);
         QC::String::memcpy(newEntry.name, fatName, 11);
         newEntry.attributes = FAT32Attr::Directory;
+        newEntry.reserved = computeNtCaseFlagsForSfnDisplay(baseName);
         newEntry.clusterHigh = static_cast<QC::u16>((newCluster >> 16) & 0xFFFF);
         newEntry.clusterLow = static_cast<QC::u16>(newCluster & 0xFFFF);
         newEntry.size = 0;
@@ -737,8 +959,6 @@ namespace QFS
             return nullptr; // Root directory has no direct entry
         }
 
-        char nameBuffer[12];
-
         while (*segment)
         {
             const char *start = segment;
@@ -749,26 +969,100 @@ namespace QFS
             if (len == 0)
                 break;
 
-            char element[64];
+            char element[256];
             if (len >= sizeof(element))
                 len = sizeof(element) - 1;
             for (QC::usize i = 0; i < len; ++i)
-            {
-                char c = start[i];
-                if (c >= 'a' && c <= 'z')
-                    c = static_cast<char>(c - 32);
-                element[i] = c;
-            }
+                element[i] = start[i];
             element[len] = '\0';
-
-            formatName(element, nameBuffer);
 
             FAT32DirEntry entry;
             QC::u32 foundIndex = 0;
-            if (!iterateDirectory(currentCluster, nameBuffer, &entry, &foundIndex))
+            bool found = false;
+
+            // Scan directory entries and match either long filename (LFN) or short 8.3 name (SFN).
+            QC::u32 cluster = currentCluster;
+            QC::u32 index = 0;
+            char pendingLfn[256];
+            QC::u8 pendingSum = 0;
+            bool pendingValid = false;
+            lfnClear(pendingLfn, sizeof(pendingLfn), pendingSum, pendingValid);
+
+            while (!found && cluster >= 2 && cluster < FAT32_BAD)
             {
-                return nullptr;
+                if (!loadCluster(cluster))
+                    return nullptr;
+
+                const QC::u32 entriesPerCluster = m_clusterSize / sizeof(FAT32DirEntry);
+                auto *entries = reinterpret_cast<FAT32DirEntry *>(m_clusterBuffer);
+
+                for (QC::u32 i = 0; i < entriesPerCluster; ++i, ++index)
+                {
+                    FAT32DirEntry &cand = entries[i];
+                    const unsigned char n0 = static_cast<unsigned char>(cand.name[0]);
+                    if (n0 == 0x00)
+                        break; // end of directory
+                    if (n0 == 0xE5)
+                    {
+                        lfnClear(pendingLfn, sizeof(pendingLfn), pendingSum, pendingValid);
+                        continue;
+                    }
+
+                    if ((cand.attributes & FAT32Attr::LongName) == FAT32Attr::LongName)
+                    {
+                        const FATLongNameEntry &lfn = *reinterpret_cast<const FATLongNameEntry *>(&cand);
+                        if (lfn.attributes == FAT32Attr::LongName && lfn.type == 0)
+                        {
+                            const bool isStart = (lfn.order & 0x40) != 0;
+                            if (isStart)
+                            {
+                                lfnClear(pendingLfn, sizeof(pendingLfn), pendingSum, pendingValid);
+                                pendingSum = lfn.checksum;
+                                pendingValid = true;
+                            }
+                            if (pendingValid && pendingSum == lfn.checksum)
+                                lfnConsume(lfn, pendingLfn, sizeof(pendingLfn));
+                            else
+                                lfnClear(pendingLfn, sizeof(pendingLfn), pendingSum, pendingValid);
+                        }
+                        continue;
+                    }
+
+                    if (cand.attributes & FAT32Attr::VolumeId)
+                    {
+                        lfnClear(pendingLfn, sizeof(pendingLfn), pendingSum, pendingValid);
+                        continue;
+                    }
+
+                    char shortName[64];
+                    QC::String::memset(shortName, 0, sizeof(shortName));
+                    parseName(cand.name, shortName);
+
+                    const bool lfnMatches = pendingValid && pendingLfn[0] != '\0' && sfnChecksum(cand.name) == pendingSum && equalsIgnoreCase(element, pendingLfn);
+                    const bool sfnMatches = equalsIgnoreCase(element, shortName);
+
+                    if (lfnMatches || sfnMatches)
+                    {
+                        entry = cand;
+                        foundIndex = index;
+                        found = true;
+                        break;
+                    }
+
+                    lfnClear(pendingLfn, sizeof(pendingLfn), pendingSum, pendingValid);
+                }
+
+                if (found)
+                    break;
+
+                QC::u32 next = readFAT(cluster);
+                if (next >= FAT32_EOC)
+                    break;
+                cluster = next;
             }
+
+            if (!found)
+                return nullptr;
 
             // Skip consecutive separators
             while (*segment == '/')
@@ -836,7 +1130,8 @@ namespace QFS
             auto *entries = reinterpret_cast<FAT32DirEntry *>(m_clusterBuffer);
             for (QC::u32 i = 0; i < entriesPerCluster; ++i)
             {
-                if (entries[i].name[0] == 0x00 || entries[i].name[0] == 0xE5)
+                const unsigned char name0 = static_cast<unsigned char>(entries[i].name[0]);
+                if (name0 == 0x00 || name0 == 0xE5)
                 {
                     *outEntryIndex = baseIndex + i;
                     return true;
@@ -883,6 +1178,38 @@ namespace QFS
             for (i = 8; i < 11 && fatName[i] != ' '; ++i)
             {
                 outName[j++] = fatName[i];
+            }
+        }
+
+        outName[j] = '\0';
+    }
+
+    void FAT32::parseName(const FAT32DirEntry &entry, char *outName)
+    {
+        if (!outName)
+            return;
+
+        int i = 0, j = 0;
+        const bool lowerBase = (entry.reserved & 0x08) != 0;
+        const bool lowerExt = (entry.reserved & 0x10) != 0;
+
+        for (i = 0; i < 8 && entry.name[i] != ' '; ++i)
+        {
+            char c = entry.name[i];
+            if (lowerBase && isUpperAlpha(c))
+                c = static_cast<char>(c + 32);
+            outName[j++] = c;
+        }
+
+        if (entry.name[8] != ' ')
+        {
+            outName[j++] = '.';
+            for (i = 8; i < 11 && entry.name[i] != ' '; ++i)
+            {
+                char c = entry.name[i];
+                if (lowerExt && isUpperAlpha(c))
+                    c = static_cast<char>(c + 32);
+                outName[j++] = c;
             }
         }
 

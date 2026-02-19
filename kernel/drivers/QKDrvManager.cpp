@@ -7,8 +7,10 @@
 #include "UHCI/QKDrvUHCI.h"
 #include "XHCI/xhci.h"
 #include "E1000/QKDrvE1000.h"
+#include "IDE/QKDrvIDE.h"
 #include "QNetStack.h"
 #include "QArchPCI.h"
+#include "QFSVolumeManager.h"
 #include "QCLogger.h"
 
 namespace QKDrv
@@ -28,7 +30,7 @@ namespace QKDrv
         m_keyboardDriver = nullptr;
         // Note: m_screenWidth/m_screenHeight should be set by setScreenSize() before initialize()
 
-        // Probe for USB controllers first (preferred for tablet support)
+        // Probe for USB controllers first (preferred for pointer devices)
         probeUSB();
 
         // Always probe PS/2 as fallback
@@ -36,6 +38,9 @@ namespace QKDrv
 
         // Probe for network devices
         probeNetwork();
+
+        // Probe for legacy storage volumes (e.g., QEMU vvfat shared folder)
+        probeStorage();
 
         if (m_mouseDriver)
         {
@@ -54,6 +59,14 @@ namespace QKDrv
         {
             QC_LOG_WARN("QKDrv", "No keyboard driver available");
         }
+
+        // Attempt to mount any auto-mount volumes that drivers may have registered
+        QFS::VolumeManager::instance().mountPending();
+    }
+
+    void Manager::probeStorage()
+    {
+        IDE::probeAndRegisterSharedVolume();
     }
 
     void Manager::shutdown()
@@ -85,7 +98,7 @@ namespace QKDrv
             }
         }
 
-        // Initialize PS/2 mouse - but skip if we already have a USB tablet
+        // Initialize PS/2 mouse - but skip if we already have a USB pointer device
         if (!m_mouseDriver)
         {
             PS2::Mouse &mouse = PS2::Mouse::instance();
@@ -103,7 +116,7 @@ namespace QKDrv
         }
         else
         {
-            QC_LOG_INFO("QKDrv", "Skipping PS/2 mouse - USB tablet available");
+            QC_LOG_INFO("QKDrv", "Skipping PS/2 mouse - USB pointer device available");
         }
     }
 
@@ -132,7 +145,7 @@ namespace QKDrv
                     m_controllers.push_back(xhci);
                     xhci->setScreenSize(m_screenWidth, m_screenHeight);
 
-                    // If this controller has a tablet, use it as mouse driver
+                    // Prefer USB tablet (absolute), then USB mouse (relative)
                     if (xhci->hasTablet() && xhci->tabletDriver())
                     {
                         QC_LOG_INFO("QKDrv", "Using USB tablet as mouse driver");
@@ -140,6 +153,16 @@ namespace QKDrv
                         if (m_mouseDriver)
                         {
                             QC_LOG_INFO("QKDrv", "Setting tablet bounds to %ux%u", m_screenWidth, m_screenHeight);
+                            m_mouseDriver->setBounds(0, 0, m_screenWidth - 1, m_screenHeight - 1);
+                        }
+                    }
+                    else if (xhci->hasMouse() && xhci->mouseDriver())
+                    {
+                        QC_LOG_INFO("QKDrv", "Using USB mouse as mouse driver");
+                        m_mouseDriver = xhci->mouseDriver();
+                        if (m_mouseDriver)
+                        {
+                            QC_LOG_INFO("QKDrv", "Setting mouse bounds to %ux%u", m_screenWidth, m_screenHeight);
                             m_mouseDriver->setBounds(0, 0, m_screenWidth - 1, m_screenHeight - 1);
                         }
                     }
@@ -225,6 +248,9 @@ namespace QKDrv
         {
             m_controllers[i]->poll();
         }
+
+        // Give storage drivers a chance to surface devices asynchronously
+        QFS::VolumeManager::instance().mountPending();
     }
 
 } // namespace QKDrv

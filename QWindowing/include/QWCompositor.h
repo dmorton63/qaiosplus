@@ -13,6 +13,7 @@ namespace QW
     class Window;
     class Framebuffer;
     class Renderer;
+    class PresentBackend;
 
     // Composition effect
     enum class CompositionEffect : QC::u8
@@ -77,6 +78,7 @@ namespace QW
 
         Framebuffer *m_framebuffer;
         Renderer *m_renderer;
+        PresentBackend *m_presentBackend;
 
         QC::Vector<DirtyRegion> m_dirtyRegions;
         QC::u32 m_effects;

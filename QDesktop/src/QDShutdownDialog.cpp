@@ -55,11 +55,6 @@ namespace QD
         if (!m_window)
             return;
 
-        if (m_window->root())
-        {
-            m_window->root()->clearChildren();
-        }
-
         QW::WindowManager::instance().destroyWindow(m_window);
         m_window = nullptr;
         m_root = nullptr;

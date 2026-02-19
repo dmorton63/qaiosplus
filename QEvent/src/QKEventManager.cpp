@@ -205,7 +205,7 @@ namespace QK
             postEvent(event);
         }
 
-        void EventManager::postCustomEvent(QC::u16 customType, QC::u64 param1,
+        bool EventManager::postCustomEvent(QC::u16 customType, QC::u64 param1,
                                            QC::u64 param2, void *userData)
         {
             Event event;
@@ -217,7 +217,7 @@ namespace QK
             event.data.custom.param2 = param2;
             event.data.custom.userData = userData;
 
-            postEvent(event);
+            return postEvent(event);
         }
 
         void EventManager::postShutdownEvent(Type type, QC::u32 reasonCode,

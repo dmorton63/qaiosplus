@@ -2,6 +2,7 @@ add_subdirectory(drivers)
 
 add_executable(qaios_kernel
     QKMain.cpp
+    QKConsole.cpp
 )
 
 # Add assembly with custom compile flags

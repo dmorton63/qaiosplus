@@ -103,6 +103,28 @@ limine_terminal_request:
     dq 0                     ; revision
     dq 0                     ; response pointer
     dq 0                     ; optional callback pointer
+
+; Firmware type request (UEFI vs BIOS)
+align 8
+global limine_firmware_type_request
+limine_firmware_type_request:
+    dq LIMINE_COMMON_MAGIC_0
+    dq LIMINE_COMMON_MAGIC_1
+    dq 0x8c2f75d90bef28a8
+    dq 0x7045a4688eac00c3
+    dq 0                     ; revision
+    dq 0                     ; response pointer
+
+; RSDP request (ACPI entrypoint)
+align 8
+global limine_rsdp_request
+limine_rsdp_request:
+    dq LIMINE_COMMON_MAGIC_0
+    dq LIMINE_COMMON_MAGIC_1
+    dq 0xc5e77b6b397e7b43
+    dq 0x27637845accdcf3c
+    dq 0                     ; revision
+    dq 0                     ; response pointer
     
 ; ============================================================================
 ; BSS section

@@ -74,6 +74,7 @@ namespace QW
             QC::i32 buttonShadowOffsetY = 2;
             QC::u32 buttonShadowSoftness = 8;
             QC::u32 focusRingWidth = 2;
+            float textScale = 1.0f;
         } metrics;
 
         struct ButtonStyle

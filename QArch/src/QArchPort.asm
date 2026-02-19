@@ -13,6 +13,7 @@ global asm_io_wait
 global asm_cli
 global asm_sti
 global asm_hlt
+global cpu_relax
 
 ; void asm_outb(uint16_t port, uint8_t value)
 asm_outb:
@@ -74,4 +75,9 @@ asm_sti:
 ; void asm_hlt(void)
 asm_hlt:
     hlt
+    ret
+
+; void cpu_relax(void)
+cpu_relax:
+    pause
     ret

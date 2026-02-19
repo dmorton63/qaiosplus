@@ -93,6 +93,7 @@ namespace QKDrv
             Speed speed;
             bool isHID;
             bool isTablet;
+            bool isMouse;
             QC::u8 hidEndpoint;
             QC::u8 hidInterval;
             QC::u16 hidMaxPacket;
@@ -105,6 +106,21 @@ namespace QKDrv
             QC::u32 logicalMaxX;
             QC::u32 logicalMaxY;
         };
+
+        enum class HIDDeviceKind : QC::u8
+        {
+            None = 0,
+            Mouse,
+            Tablet
+        };
+
+        struct HIDMouseReport
+        {
+            QC::u8 buttons;
+            QC::i8 dx;
+            QC::i8 dy;
+            QC::i8 wheel;
+        } __attribute__((packed));
 
         struct HIDTabletReport
         {
@@ -153,6 +169,40 @@ namespace QKDrv
             QC::u8 m_buttons;
         };
 
+        class HIDMouseDriver : public MouseDriver
+        {
+        public:
+            explicit HIDMouseDriver(XHCIControllerImpl *controller);
+
+            QC::Status initialize() override { return QC::Status::Success; }
+            void shutdown() override {}
+            void poll() override;
+            const char *name() const override { return "USB Mouse"; }
+            ControllerType controllerType() const override { return ControllerType::XHCI; }
+
+            void setCallback(MouseCallback callback) override { m_callback = callback; }
+            void setBounds(QC::i32 minX, QC::i32 minY, QC::i32 maxX, QC::i32 maxY) override;
+
+            QC::i32 x() const override { return m_x; }
+            QC::i32 y() const override { return m_y; }
+            QC::u8 buttons() const override { return m_buttons; }
+
+            bool isAbsolute() const override { return false; }
+
+            void updateDelta(QC::i32 dx, QC::i32 dy, QC::i32 wheel, QC::u8 buttons);
+
+        private:
+            XHCIControllerImpl *m_controller;
+            MouseCallback m_callback;
+            QC::i32 m_x;
+            QC::i32 m_y;
+            QC::i32 m_minX;
+            QC::i32 m_minY;
+            QC::i32 m_maxX;
+            QC::i32 m_maxY;
+            QC::u8 m_buttons;
+        };
+
         class XHCIControllerImpl : public XHCIController
         {
         public:
@@ -172,6 +222,9 @@ namespace QKDrv
 
             bool hasTablet() const override { return m_tabletSlot != 0; }
             MouseDriver *tabletDriver() override { return m_tabletDriver; }
+
+            bool hasMouse() const override { return m_mouseSlot != 0; }
+            MouseDriver *mouseDriver() override { return m_mouseDriver; }
 
             void hardwareReset() override;
             bool submitTransfer(QC::u8 slotId,
@@ -199,7 +252,7 @@ namespace QKDrv
             bool addressDevice(QC::u8 slotId, QC::u8 port, Speed speed);
             bool configureEndpoint(QC::u8 slotId, const USBEndpointDescriptor &ep);
             bool setConfiguration(QC::u8 slotId, QC::u8 configValue);
-            bool setHIDBootProtocol(QC::u8 slotId);
+            bool setHIDProtocol(QC::u8 slotId, QC::u8 interfaceNumber, QC::u16 protocol);
 
             bool controlTransfer(QC::u8 slotId, QC::u8 reqType, QC::u8 request,
                                  QC::u16 value, QC::u16 index, void *data, QC::u16 length);
@@ -214,7 +267,7 @@ namespace QKDrv
 
             void probeDevices();
             bool enumerateDevice(QC::u8 port);
-            bool identifyHID(QC::u8 slotId, DeviceInfo &dev, const QC::u8 *configData, QC::u16 length);
+            HIDDeviceKind identifyHID(QC::u8 slotId, DeviceInfo &dev, const QC::u8 *configData, QC::u16 length);
             bool fetchHIDLogicalRanges(QC::u8 slotId, QC::u8 interfaceNumber,
                                        QC::u16 reportLength, QC::u32 &logicalMaxX,
                                        QC::u32 &logicalMaxY);
@@ -268,6 +321,7 @@ namespace QKDrv
             QC::u8 m_deviceCount;
 
             QC::u8 m_tabletSlot;
+            QC::u8 m_mouseSlot;
             bool m_commandPending;
             CompletionCode m_lastCompletionCode;
             QC::u8 m_lastSlotId;
@@ -280,6 +334,7 @@ namespace QKDrv
             QC::u32 m_screenHeight;
 
             TabletDriver *m_tabletDriver;
+            HIDMouseDriver *m_mouseDriver;
 
             TRB *m_ep0Rings[MAX_DEVICES + 1];
             QC::PhysAddr m_ep0RingPhys[MAX_DEVICES + 1];

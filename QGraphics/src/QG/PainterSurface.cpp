@@ -17,11 +17,6 @@ namespace QG
 
         inline Glyph5x7 glyphForChar(char c)
         {
-            if (c >= 'a' && c <= 'z')
-            {
-                c = static_cast<char>(c - 'a' + 'A');
-            }
-
             switch (c)
             {
             case ' ':
@@ -79,6 +74,59 @@ namespace QG
                 return {{0x0E, 0x11, 0x11, 0x0E, 0x11, 0x11, 0x0E}};
             case '9':
                 return {{0x0E, 0x11, 0x11, 0x1E, 0x10, 0x08, 0x06}};
+
+            case 'a':
+                return {{0x00, 0x00, 0x0E, 0x10, 0x1E, 0x11, 0x1E}};
+            case 'b':
+                return {{0x01, 0x01, 0x0F, 0x11, 0x11, 0x11, 0x0F}};
+            case 'c':
+                return {{0x00, 0x00, 0x0E, 0x01, 0x01, 0x11, 0x0E}};
+            case 'd':
+                return {{0x10, 0x10, 0x1E, 0x11, 0x11, 0x11, 0x1E}};
+            case 'e':
+                return {{0x00, 0x00, 0x0E, 0x11, 0x1F, 0x01, 0x0E}};
+            case 'f':
+                return {{0x0C, 0x12, 0x02, 0x0F, 0x02, 0x02, 0x02}};
+            case 'g':
+                return {{0x00, 0x00, 0x1E, 0x11, 0x11, 0x1E, 0x10}};
+            case 'h':
+                return {{0x01, 0x01, 0x0F, 0x11, 0x11, 0x11, 0x11}};
+            case 'i':
+                return {{0x04, 0x00, 0x06, 0x04, 0x04, 0x04, 0x0E}};
+            case 'j':
+                return {{0x08, 0x00, 0x18, 0x08, 0x08, 0x09, 0x06}};
+            case 'k':
+                return {{0x01, 0x01, 0x09, 0x05, 0x03, 0x05, 0x09}};
+            case 'l':
+                return {{0x06, 0x04, 0x04, 0x04, 0x04, 0x04, 0x0E}};
+            case 'm':
+                return {{0x00, 0x00, 0x0B, 0x15, 0x15, 0x15, 0x15}};
+            case 'n':
+                return {{0x00, 0x00, 0x0F, 0x11, 0x11, 0x11, 0x11}};
+            case 'o':
+                return {{0x00, 0x00, 0x0E, 0x11, 0x11, 0x11, 0x0E}};
+            case 'p':
+                return {{0x00, 0x00, 0x0F, 0x11, 0x11, 0x0F, 0x01}};
+            case 'q':
+                return {{0x00, 0x00, 0x1E, 0x11, 0x11, 0x1E, 0x10}};
+            case 'r':
+                return {{0x00, 0x00, 0x0D, 0x13, 0x01, 0x01, 0x01}};
+            case 's':
+                return {{0x00, 0x00, 0x1E, 0x01, 0x0E, 0x10, 0x0F}};
+            case 't':
+                return {{0x02, 0x02, 0x0F, 0x02, 0x02, 0x12, 0x0C}};
+            case 'u':
+                return {{0x00, 0x00, 0x11, 0x11, 0x11, 0x11, 0x1E}};
+            case 'v':
+                return {{0x00, 0x00, 0x11, 0x11, 0x11, 0x0A, 0x04}};
+            case 'w':
+                return {{0x00, 0x00, 0x11, 0x11, 0x15, 0x15, 0x0A}};
+            case 'x':
+                return {{0x00, 0x00, 0x11, 0x0A, 0x04, 0x0A, 0x11}};
+            case 'y':
+                return {{0x00, 0x00, 0x11, 0x11, 0x11, 0x1E, 0x10}};
+            case 'z':
+                return {{0x00, 0x00, 0x1F, 0x08, 0x04, 0x02, 0x1F}};
 
             case 'A':
                 return {{0x0E, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11}};
@@ -222,7 +270,8 @@ namespace QG
           m_pitch(pitch ? pitch : width),
           m_clip(0, 0, width, height),
           m_hasClip(false),
-          m_origin(0, 0)
+          m_origin(0, 0),
+          m_textScale(1.0f)
     {
     }
 
@@ -279,6 +328,18 @@ namespace QG
     {
         m_origin.x += dx;
         m_origin.y += dy;
+    }
+
+    void PainterSurface::setTextScale(float scale)
+    {
+        if (scale < 0.1f)
+            scale = 0.1f;
+        m_textScale = scale;
+    }
+
+    float PainterSurface::textScale() const
+    {
+        return m_textScale;
     }
 
     void PainterSurface::setPixel(QC::i32 x, QC::i32 y, QC::Color color)
@@ -688,6 +749,10 @@ namespace QG
         if (!text || !m_pixels || m_pitch == 0)
             return;
 
+        const QC::i32 scale = textPixelScale();
+        const QC::i32 advanceX = kGlyphW * scale;
+        const QC::i32 advanceY = kGlyphH * scale;
+
         QC::i32 cursorX = x;
         QC::i32 cursorY = y;
 
@@ -696,25 +761,27 @@ namespace QG
             if (*p == '\n')
             {
                 cursorX = x;
-                cursorY += kGlyphH;
+                cursorY += advanceY;
                 continue;
             }
 
             const Glyph5x7 g = glyphForChar(*p);
             for (QC::i32 row = 0; row < 7; ++row)
             {
-                // Decode with LSB as leftmost.
                 QC::u8 bits = g.rows[row];
                 for (QC::i32 col = 0; col < 5; ++col)
                 {
                     if (bits & (1u << col))
                     {
-                        setPixel(cursorX + col, cursorY + row, color);
+                        stampGlyphPixel(cursorX + col * scale,
+                                        cursorY + row * scale,
+                                        scale,
+                                        color);
                     }
                 }
             }
 
-            cursorX += kGlyphW;
+            cursorX += advanceX;
         }
     }
 
@@ -723,10 +790,9 @@ namespace QG
         if (!text || rect.isEmpty())
             return;
 
-        // Minimal implementation: alignment + optional ellipsis for single-line text.
-        // Word-wrap can be added later; for now, explicit '\n' is supported.
-
-        const QC::Size textSize = measureTextMono5x7(text);
+        const QC::i32 scale = textPixelScale();
+        const QC::Size baseSize = measureTextMono5x7(text);
+        const QC::Size textSize(baseSize.width * scale, baseSize.height * scale);
 
         QC::i32 startX = rect.x;
         QC::i32 startY = rect.y;
@@ -741,15 +807,14 @@ namespace QG
         else if (hasFlag(format.align, TextAlign::Bottom))
             startY = rect.y + static_cast<QC::i32>(rect.height) - textSize.height;
 
-        // Clip to rect during draw.
         const bool hadClip = m_hasClip;
         const QC::Rect oldClip = m_clip;
         setClipRect(rect.offset(m_origin.x, m_origin.y));
 
         if (format.ellipsis && static_cast<QC::i32>(rect.width) > 0)
         {
-            // Only applies to the first line, single-line-ish usage.
-            const QC::i32 maxChars = static_cast<QC::i32>(rect.width) / kGlyphW;
+            const QC::i32 glyphAdvance = kGlyphW * scale;
+            const QC::i32 maxChars = glyphAdvance > 0 ? static_cast<QC::i32>(rect.width) / glyphAdvance : 0;
             if (maxChars > 0)
             {
                 QC::i32 count = 0;
@@ -758,8 +823,6 @@ namespace QG
 
                 if (count > maxChars)
                 {
-                    // Render truncated text with "...".
-                    // Keep it simple and avoid allocations.
                     const QC::i32 dots = 3;
                     QC::i32 keep = maxChars - dots;
                     if (keep < 0)
@@ -776,9 +839,12 @@ namespace QG
                             QC::u8 bits = g.rows[row];
                             for (QC::i32 col = 0; col < 5; ++col)
                                 if (bits & (1u << col))
-                                    setPixel(cursorX + col, cursorY + row, color);
+                                    stampGlyphPixel(cursorX + col * scale,
+                                                    cursorY + row * scale,
+                                                    scale,
+                                                    color);
                         }
-                        cursorX += kGlyphW;
+                        cursorX += glyphAdvance;
                     }
 
                     for (QC::i32 i = 0; i < dots; ++i)
@@ -789,9 +855,12 @@ namespace QG
                             QC::u8 bits = g.rows[row];
                             for (QC::i32 col = 0; col < 5; ++col)
                                 if (bits & (1u << col))
-                                    setPixel(cursorX + col, cursorY + row, color);
+                                    stampGlyphPixel(cursorX + col * scale,
+                                                    cursorY + row * scale,
+                                                    scale,
+                                                    color);
                         }
-                        cursorX += kGlyphW;
+                        cursorX += glyphAdvance;
                     }
 
                     if (hadClip)
@@ -813,7 +882,9 @@ namespace QG
 
     QC::Size PainterSurface::measureText(const char *text) const
     {
-        return measureTextMono5x7(text);
+        const QC::Size base = measureTextMono5x7(text);
+        const QC::i32 scale = textPixelScale();
+        return QC::Size(base.width * scale, base.height * scale);
     }
 
     void PainterSurface::blit(QC::i32 x, QC::i32 y,
@@ -940,6 +1011,34 @@ namespace QG
                y >= m_clip.y &&
                x < clipRight &&
                y < clipBottom;
+    }
+
+    QC::i32 PainterSurface::textPixelScale() const
+    {
+        if (m_textScale <= 0.0f)
+            return 1;
+        float clamped = m_textScale;
+        if (clamped < 0.5f)
+            clamped = 0.5f;
+        QC::i32 rounded = static_cast<QC::i32>(clamped + 0.5f);
+        return (rounded < 1) ? 1 : rounded;
+    }
+
+    void PainterSurface::stampGlyphPixel(QC::i32 baseX, QC::i32 baseY, QC::i32 scale, QC::Color color)
+    {
+        if (scale <= 1)
+        {
+            setPixel(baseX, baseY, color);
+            return;
+        }
+
+        for (QC::i32 y = 0; y < scale; ++y)
+        {
+            for (QC::i32 x = 0; x < scale; ++x)
+            {
+                setPixel(baseX + x, baseY + y, color);
+            }
+        }
     }
 
 } // namespace QG

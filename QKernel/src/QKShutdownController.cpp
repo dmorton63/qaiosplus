@@ -208,7 +208,22 @@ namespace QK
         void Controller::powerOffHardware()
         {
             QC_LOG_INFO(LOG_MODULE, "Issuing ACPI power-off sequence");
+
+            // Common hypervisor/firmware shutdown ports.
+            // QEMU (PC/i440fx) often reacts to 0x604; some setups require the full S5 value 0x3400.
+            // Bochs:               0xB004
+            // VirtualBox:          0x4004 (expects 0x3400)
+            // QEMU debug-exit:     0xF4 (requires -device isa-debug-exit)
             QC::outw(0x604, 0x2000);
+            QC::outw(0x604, 0x3400);
+            QC::outw(0xB004, 0x2000);
+            QC::outw(0xB004, 0x3400);
+            QC::outw(0x4004, 0x3400);
+
+            // If QEMU is launched with isa-debug-exit, this will immediately terminate QEMU.
+            // Note: the device exits only when bit0 is set.
+            QC::outl(0xF4, 0x11);
+
             QC::cli();
             for (;;)
             {

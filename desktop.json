@@ -2,8 +2,8 @@
     "desktop": {
         "background": {
             "type": "image",
-            "path": "/system/wallpapers/summer_beach_sky.png",
-            "mode": "stretch"
+            "path": "/system/wall/LOGO512.PNG",
+            "mode": "center"
         },
         "theme": {
             "base": "Vista",
@@ -27,14 +27,14 @@
                         "fillNormal": "#1E2A33",
                         "fillHover": "#2F3E4A",
                         "text": "#CFEAFF",
-                        "border": "#2F3E4A"
+                        "border": "#343F47"
                     },
                     "accent": {
-                        "fillNormal": "#4FA7E3",
+                        "fillNormal": "#3f3f47",
                         "fillHover": "#8FD1FF",
                         "fillPressed": "#2F6FA3",
                         "text": "#FFFFFF",
-                        "border": "#1C425F",
+                        "border": "#343F47",
                         "shineIntensity": 0.35,
                         "glass": true
                     },
@@ -46,6 +46,9 @@
                         "border": "#802020",
                         "glass": true
                     }
+                },
+                "font": {
+                    "size": 16
                 }
             }
         },
@@ -65,7 +68,7 @@
                         {
                             "id": "headerTitle",
                             "type": "label",
-                            "text": "QAIOS++ Summer Desktop",
+                            "text": "CITADEL Summer Desktop",
                             "x": 20,
                             "y": 16,
                             "color": "#E3F4FF",
@@ -168,7 +171,7 @@
                         {
                             "id": "welcomeLabel",
                             "type": "label",
-                            "text": "Welcome to Summer in QAIOS++!",
+                            "text": "Welcome to Summer in CITADEL!",
                             "x": 40,
                             "y": 40,
                             "color": "#1C425F",
@@ -194,20 +197,24 @@
                             "border": "#A8CDE6",
                             "children": [
                                 {
-                                    "id": "cardTitle",
-                                    "type": "label",
-                                    "text": "System Information",
+                                    "id": "oslogo",
+                                    "type": "image",
+                                    "path": "/system/wall/LOGO512.PNG",
+                                    "mode": "fit",
                                     "x": 20,
                                     "y": 20,
-                                    "color": "#1C425F",
-                                    "font": "system-bold-18"
+                                    "width": 128,
+                                    "height": 128,
+                                    "zindex": 10,
+                                    "anchor": "topleft",
+                                    "visible": true
                                 },
                                 {
                                     "id": "cardText",
                                     "type": "label",
-                                    "text": "Kernel: QAIOS++ Experimental\nTheme: Summer 2026\nRenderer: PainterSurface\nSeasonal Mode: Sunburst",
-                                    "x": 20,
-                                    "y": 60,
+                                    "text": "Kernel: CITADEL OS Experimental\nTheme: Summer 2026\nRenderer: PainterSurface\nSeasonal Mode: Sunburst",
+                                    "x": 170,
+                                    "y": 40,
                                     "color": "#2F6FA3",
                                     "font": "system-regular-14"
                                 }

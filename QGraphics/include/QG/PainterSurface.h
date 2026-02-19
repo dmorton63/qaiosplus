@@ -35,6 +35,9 @@ namespace QG
         QC::Point origin() const override;
         void translate(QC::i32 dx, QC::i32 dy) override;
 
+        void setTextScale(float scale) override;
+        float textScale() const override;
+
         void setPixel(QC::i32 x, QC::i32 y, QC::Color color) override;
         QC::Color pixel(QC::i32 x, QC::i32 y) const override;
 
@@ -68,6 +71,8 @@ namespace QG
 
     private:
         bool inClip(QC::i32 x, QC::i32 y) const;
+        QC::i32 textPixelScale() const;
+        void stampGlyphPixel(QC::i32 baseX, QC::i32 baseY, QC::i32 scale, QC::Color color);
 
         QC::u32 *m_pixels;
         QC::u32 m_width;
@@ -78,6 +83,7 @@ namespace QG
         bool m_hasClip;
 
         QC::Point m_origin;
+        float m_textScale;
     };
 
 } // namespace QG

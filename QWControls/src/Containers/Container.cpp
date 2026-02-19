@@ -165,7 +165,7 @@ namespace QW
             for (QC::isize i = static_cast<QC::isize>(m_children.size()) - 1; i >= 0; --i)
             {
                 IControl *child = m_children[static_cast<QC::usize>(i)];
-                if (child->isVisible() && child->hitTest(x, y))
+                if (child->isVisible() && child->isEnabled() && child->hitTest(x, y))
                 {
                     return child;
                 }
@@ -206,18 +206,14 @@ namespace QW
 
         bool Container::onMouseMove(QC::i32 x, QC::i32 y, QC::i32 deltaX, QC::i32 deltaY)
         {
-            if (m_capturedChild)
-            {
-                return m_capturedChild->onMouseMove(x, y, deltaX, deltaY);
-            }
-
             IControl *child = childAtPoint(x, y);
+            bool handled = false;
 
             if (child != m_hoveredChild)
             {
                 if (m_hoveredChild)
                 {
-                    m_hoveredChild->onMouseMove(x, y, deltaX, deltaY);
+                    handled = m_hoveredChild->onMouseMove(x, y, deltaX, deltaY) || handled;
                 }
 
                 m_hoveredChild = child;
@@ -225,44 +221,54 @@ namespace QW
 
             if (child)
             {
-                return child->onMouseMove(x, y, deltaX, deltaY);
+                handled = child->onMouseMove(x, y, deltaX, deltaY) || handled;
             }
 
-            return false;
+            // Even though events follow the cursor, a captured child (e.g. dragging a scrollbar)
+            // still needs move notifications to update/release internal state.
+            if (m_capturedChild && m_capturedChild != child)
+            {
+                handled = m_capturedChild->onMouseMove(x, y, deltaX, deltaY) || handled;
+            }
+
+            return handled;
         }
 
         bool Container::onMouseDown(QC::i32 x, QC::i32 y, QK::Event::MouseButton button)
         {
+            // Mouse down must always be delivered to the topmost visible+enabled control
+            // under the cursor. Do not "click-through" to underlying controls.
             IControl *child = childAtPoint(x, y);
+            if (!child)
+                return false;
 
-            if (child)
+            const bool handled = child->onMouseDown(x, y, button);
+            if (handled)
             {
                 m_capturedChild = child;
                 setFocusedChild(child);
-                return child->onMouseDown(x, y, button);
             }
-
-            return false;
+            return handled;
         }
 
         bool Container::onMouseUp(QC::i32 x, QC::i32 y, QK::Event::MouseButton button)
         {
+            // Mouse up follows the cursor, but we also notify the captured child (if any)
+            // so pressed/dragging state can terminate even when the cursor moved away.
+            IControl *child = childAtPoint(x, y);
+
             bool handled = false;
-
-            if (m_capturedChild)
+            if (child)
             {
-                handled = m_capturedChild->onMouseUp(x, y, button);
-                m_capturedChild = nullptr;
-            }
-            else
-            {
-                IControl *child = childAtPoint(x, y);
-                if (child)
-                {
-                    handled = child->onMouseUp(x, y, button);
-                }
+                handled = child->onMouseUp(x, y, button) || handled;
             }
 
+            if (m_capturedChild && m_capturedChild != child)
+            {
+                handled = m_capturedChild->onMouseUp(x, y, button) || handled;
+            }
+
+            m_capturedChild = nullptr;
             return handled;
         }
 

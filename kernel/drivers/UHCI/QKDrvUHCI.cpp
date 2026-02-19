@@ -2,6 +2,7 @@
 // Namespace: QKDrv::UHCI
 
 #include "QKDrvUHCI.h"
+#include "QArchCPU.h"
 #include "QArchPort.h"
 #include "QCLogger.h"
 #include "QCString.h"
@@ -55,10 +56,11 @@ namespace QKDrv
 
             // Global reset
             writeReg16(Regs::USBCMD, 0x04);
-            for (volatile int i = 0; i < 100000; ++i)
-                ;
+            for (int i = 0; i < 100000; ++i)
+            {
+                cpu_relax();
+            }
             writeReg16(Regs::USBCMD, 0);
-
             // Host controller reset
             writeReg16(Regs::USBCMD, 0x02);
             while (readReg16(Regs::USBCMD) & 0x02)
@@ -196,15 +198,19 @@ namespace QKDrv
             writeReg16(portReg, 0x0200);
 
             // Wait 50ms
-            for (volatile int i = 0; i < 500000; ++i)
-                ;
+            for (int i = 0; i < 500000; ++i)
+            {
+                cpu_relax();
+            }
 
             // Clear reset
             writeReg16(portReg, 0);
 
             // Wait for device to recover
-            for (volatile int i = 0; i < 100000; ++i)
-                ;
+            for (int i = 0; i < 100000; ++i)
+            {
+                cpu_relax();
+            }
 
             // Enable port
             QC::u16 status = readReg16(portReg);

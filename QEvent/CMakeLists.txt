@@ -3,6 +3,8 @@ add_library(QEvent STATIC
     src/QKEventQueue.cpp
     src/QKEventListener.cpp
     src/QKEventManager.cpp
+    src/QKMsgBus.cpp
+    src/QKServiceRegistry.cpp
 )
 
 target_include_directories(QEvent PUBLIC include)

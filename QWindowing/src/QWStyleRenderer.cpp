@@ -147,6 +147,7 @@ namespace QW
         snapshot.metrics.buttonShadowOffsetY = 2;
         snapshot.metrics.buttonShadowSoftness = 10;
         snapshot.metrics.focusRingWidth = 2;
+        snapshot.metrics.textScale = 1.0f;
 
         const auto configureButton = [&](ButtonRole role, auto &&fn)
         {

@@ -8,6 +8,7 @@
 namespace QW
 {
     class Window;
+    struct Message;
 }
 
 namespace QW::Controls
@@ -38,9 +39,11 @@ namespace QD
     private:
         static void onSubmit(QW::Controls::TextBox *textBox, void *userData);
         static void onCloseClick(QW::Controls::Button *button, void *userData);
+        static bool onWindowMessage(QW::Window *window, const QW::Message &msg, void *userData);
 
         void appendLine(const char *line);
         void executeLine(const char *line);
+        void listDirectory(const char *path);
 
         Desktop *m_desktop;
 

@@ -1,0 +1,35 @@
+#pragma once
+
+// QKConsole - Minimal kernel console for interactive commands
+
+#include "PS2/QKDrvPS2Keyboard.h"
+
+namespace QK
+{
+    namespace Console
+    {
+        using PrintFn = void (*)(const char *msg);
+        using CommandHandler = void (*)(int argc, const char *const *argv);
+
+        struct Command
+        {
+            const char *name;
+            CommandHandler handler;
+            const char *description;
+        };
+
+        void initialize(PrintFn printer);
+        // Enable/disable interactive input handling (keyboard -> console).
+        // This does not affect Console::write() logging.
+        void setInputEnabled(bool enabled);
+        void handleKeyEvent(const QKDrv::PS2::KeyEvent &event);
+        bool registerCommand(const Command &cmd);
+
+        // Executes a single command line (same parser/handlers as interactive input).
+        // Note: does not synthesize per-character echo; it behaves like Enter was pressed.
+        void executeLine(const char *line);
+
+        void write(const char *msg);
+        const char *cwd();
+    }
+}

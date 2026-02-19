@@ -7,9 +7,16 @@ add_subdirectory(E1000)
 
 add_library(QKDrivers STATIC
     QKDrvManager.cpp
+    QKStorageRegistry.cpp
+    QKStorageProbe.cpp
+    IDE/QKDrvIDE.cpp
 )
 
-target_include_directories(QKDrivers PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(QKDrivers PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/QFileSystem/include
+    ${PROJECT_SOURCE_DIR}/limine
+)
 target_link_libraries(QKDrivers PUBLIC
     QKDrvPS2
     QKDrvUHCI

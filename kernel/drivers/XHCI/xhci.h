@@ -21,6 +21,10 @@ namespace QKDrv
             virtual bool hasTablet() const = 0;
             virtual MouseDriver *tabletDriver() = 0;
 
+            // Relative USB HID mouse (boot protocol)
+            virtual bool hasMouse() const = 0;
+            virtual MouseDriver *mouseDriver() = 0;
+
             virtual void hardwareReset() = 0;
             virtual bool submitTransfer(QC::u8 slotId,
                                         QC::u8 endpointId,

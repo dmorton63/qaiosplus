@@ -70,7 +70,7 @@ namespace QK
                                  QC::i32 x, QC::i32 y, QC::u32 w, QC::u32 h);
 
             /// Create and post a custom event
-            void postCustomEvent(QC::u16 customType, QC::u64 param1 = 0,
+            bool postCustomEvent(QC::u16 customType, QC::u64 param1 = 0,
                                  QC::u64 param2 = 0, void *userData = nullptr);
 
             /// Create and post a shutdown lifecycle event

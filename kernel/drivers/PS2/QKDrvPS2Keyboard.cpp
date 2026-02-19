@@ -82,12 +82,6 @@ namespace QKDrv
             QC::u8 status = QArch::inb(KEYBOARD_STATUS_PORT);
             if ((status & 0x01) && !(status & 0x20))
             {
-                // Debug: write to serial
-                while ((QArch::inb(0x3F8 + 5) & 0x20) == 0)
-                    ;
-                QArch::outb(0x3F8, 'P'); // 'P' for polled keyboard data
-
-                // Process it as if it were an interrupt
                 handleInterrupt();
             }
         }
@@ -123,11 +117,6 @@ namespace QKDrv
 
         void Keyboard::handleInterrupt()
         {
-            // Debug: write 'K' to serial to confirm interrupt fires
-            while ((QArch::inb(0x3F8 + 5) & 0x20) == 0)
-                ;
-            QArch::outb(0x3F8, 'K');
-
             QC::u8 scanCode = QArch::inb(KEYBOARD_DATA_PORT);
 
             // Handle extended scan codes

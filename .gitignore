@@ -31,3 +31,14 @@ Thumbs.db
 *.elf
 *.o
 *.a
+
+# QEMU host shared folder (local-only)
+shared
+shared/
+
+# Local transcripts / runtime dumps
+Shared/citadel.txt
+
+# Local backup archives
+backups/*.tgz
+backups/*.tar.gz

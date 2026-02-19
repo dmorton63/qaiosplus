@@ -3,6 +3,7 @@
 
 #include "QWControls/Leaf/Button.h"
 #include "QWWindow.h"
+#include "QCLogger.h"
 #include <cstring>
 
 namespace QW
@@ -105,9 +106,14 @@ namespace QW
             if (hitTest(x, y))
             {
                 m_pressed = true;
+                m_pressX = x;
+                m_pressY = y;
+                m_hasPressPos = true;
                 invalidate();
                 return true;
             }
+
+            m_hasPressPos = false;
 
             return false;
         }
@@ -119,13 +125,39 @@ namespace QW
 
             bool inside = hitTest(x, y);
 
+            // Click slop: tolerate small motion between down/up.
+            // This avoids needing repeated clicks when the pointer jitters a bit.
+            static constexpr int kClickSlop = 16;
+            bool withinSlop = false;
+            if (m_hasPressPos)
+            {
+                const int dx = x - m_pressX;
+                const int dy = y - m_pressY;
+                const int adx = (dx < 0) ? -dx : dx;
+                const int ady = (dy < 0) ? -dy : dy;
+                withinSlop = (adx <= kClickSlop) && (ady <= kClickSlop);
+            }
+
             if (m_pressed)
             {
                 m_pressed = false;
+                m_hasPressPos = false;
                 invalidate();
 
-                if (inside && m_clickHandler)
+                if ((inside || withinSlop) && m_clickHandler)
+                {
+                    const Rect abs = absoluteBounds();
+                    const char *title = (m_window && m_window->title()) ? m_window->title() : "";
+                    QC_LOG_INFO("QWButton", "Click '%s' window='%s' bounds=%d,%d %ux%u", m_text, title, abs.x, abs.y, abs.width, abs.height);
                     m_clickHandler(this, m_clickUserData);
+                }
+                else if (!inside && !withinSlop)
+                {
+                    const Rect abs = absoluteBounds();
+                    const char *title = (m_window && m_window->title()) ? m_window->title() : "";
+                    QC_LOG_INFO("QWButton", "Release missed '%s' window='%s' up=(%d,%d) down=(%d,%d) bounds=%d,%d %ux%u",
+                                m_text, title, x, y, m_pressX, m_pressY, abs.x, abs.y, abs.width, abs.height);
+                }
 
                 return true;
             }

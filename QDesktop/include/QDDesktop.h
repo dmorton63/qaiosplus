@@ -32,6 +32,7 @@
 #include "QWControls/Leaf/Label.h"
 #include "QWInterfaces/IControl.h"
 #include "QCVector.h"
+#include "QG/Image.h"
 #include "QDAccent.h"
 #include "QDTheme.h"
 #include "QDTerminal.h"
@@ -58,6 +59,8 @@ namespace QD
     using QC::Size;
 
     class ShutdownDialog;
+    class SetupWizard;
+    class LoginDialog;
 
     // Layout constants
     constexpr QC::u32 TOP_BAR_HEIGHT = 32;
@@ -112,6 +115,20 @@ namespace QD
         /// Get the desktop work area (where app windows can appear)
         Rect workArea() const;
 
+        // ==================== User Setup/Login (v1 UI) ====================
+
+        /// Returns true when the owner enrollment marker exists
+        bool isOwnerEnrolled() const;
+
+        /// Show first-boot setup wizard (Owner enrollment)
+        void showSetupWizard();
+
+        /// Show simple PIN login/unlock dialog
+        void showLoginDialog();
+
+        /// Hide/close the login dialog if open
+        void hideLoginDialog();
+
         // ==================== Panels ====================
 
         QW::Controls::Panel *topBar() { return m_topBar; }
@@ -165,6 +182,13 @@ namespace QD
         void applyThemeOverrides(QW::StyleSnapshot &snapshot) const;
         void applyThemeToDesktopColors(DesktopColors &colors) const;
         void updateSidebarButtonRoles();
+        void resetBackgroundConfig();
+        void parseBackground(const QC::JSON::Value *backgroundValue);
+        struct ImageAsset;
+        ImageAsset *findImageAsset(const char *path) const;
+        ImageAsset *loadImageAsset(const char *path);
+        void releaseImageAssets();
+        bool readFileBytes(const char *path, QC::Vector<QC::u8> &outBuffer) const;
 
         void openTerminal();
         void toggleTerminal();
@@ -257,11 +281,27 @@ namespace QD
             ColorOverride color;
         };
 
+        struct TransparencyOverrides
+        {
+            bool windowOpacitySet = false;
+            QC::u8 windowOpacity = 0xFF;
+            bool panelOpacitySet = false;
+            QC::u8 panelOpacity = 0xFF;
+        };
+
         struct EffectsOverrides
         {
             ColorOverride borderColor;
             ShadowOverrides shadow;
             GlowOverrides glow;
+        };
+
+        struct FontOverrides
+        {
+            bool familySet = false;
+            char family[48] = {};
+            bool sizeSet = false;
+            QC::u8 size = 12;
         };
 
         struct ThemeOverrides
@@ -270,6 +310,8 @@ namespace QD
             MetricsOverrides metrics;
             ButtonStyleOverrides button[static_cast<QC::u32>(QW::ButtonRole::Count)];
             EffectsOverrides effects;
+            TransparencyOverrides transparency;
+            FontOverrides font;
             bool active = false;
         };
 
@@ -325,6 +367,36 @@ namespace QD
 
         Terminal *m_terminal;
         class ShutdownDialog *m_shutdownDialog;
+
+        SetupWizard *m_setupWizard;
+        LoginDialog *m_loginDialog;
+
+        struct ImageAsset
+        {
+            char path[128];
+            QG::ImageSurface surface;
+        };
+
+        enum class BackgroundMode : QC::u8
+        {
+            Gradient,
+            Image
+        };
+
+        struct BackgroundConfig
+        {
+            BackgroundMode mode = BackgroundMode::Gradient;
+            QW::Color topColor;
+            QW::Color bottomColor;
+            bool topOverride = false;
+            bool bottomOverride = false;
+            ImageAsset *image = nullptr;
+            QG::ImageScaleMode scaleMode = QG::ImageScaleMode::Stretch;
+        };
+
+        BackgroundConfig m_backgroundConfig;
+        QC::Vector<ImageAsset *> m_imageAssets;
+        QC::Vector<QC::u32> m_backgroundScratch;
     };
 
 } // namespace QD

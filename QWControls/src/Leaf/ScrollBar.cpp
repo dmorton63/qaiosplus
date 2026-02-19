@@ -27,7 +27,8 @@ namespace QW
               m_changeUserData(nullptr),
               m_dragging(false),
               m_dragOffset(0),
-              m_pressedArea(HitArea::None)
+              m_pressedArea(HitArea::None),
+              m_clickToMax(false)
         {
             m_bgColor = Color(240, 240, 240, 255);
         }
@@ -49,7 +50,8 @@ namespace QW
               m_changeUserData(nullptr),
               m_dragging(false),
               m_dragOffset(0),
-              m_pressedArea(HitArea::None)
+              m_pressedArea(HitArea::None),
+              m_clickToMax(false)
         {
             m_bgColor = Color(240, 240, 240, 255);
         }
@@ -187,6 +189,19 @@ namespace QW
         {
             if (!m_enabled || button != QK::Event::MouseButton::Left)
                 return false;
+
+            // Optional slider-like behavior: toggle to max/min on click.
+            if (m_clickToMax)
+            {
+                if (hitTest(x, y))
+                {
+                    m_dragging = false;
+                    m_pressedArea = HitArea::None;
+                    setValue((m_value >= m_maximum) ? m_minimum : m_maximum);
+                    return true;
+                }
+                return false;
+            }
 
             HitArea area = hitTestArea(x, y);
             m_pressedArea = area;

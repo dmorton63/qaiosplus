@@ -12,6 +12,47 @@
 namespace QFS
 {
 
+    static inline char lowerAscii(char c)
+    {
+        if (c >= 'A' && c <= 'Z')
+            return static_cast<char>(c + 32);
+        return c;
+    }
+
+    static bool startsWithIgnoreCase(const char *s, const char *prefix)
+    {
+        if (!s || !prefix)
+            return false;
+        while (*prefix)
+        {
+            if (lowerAscii(*s) != lowerAscii(*prefix))
+                return false;
+            ++s;
+            ++prefix;
+        }
+        return true;
+    }
+
+    static bool isMountPrefixIgnoreCase(const char *path, const char *mount)
+    {
+        if (!path || !mount)
+            return false;
+
+        const QC::usize mlen = QC::String::strlen(mount);
+        if (mlen == 0)
+            return false;
+
+        if (!startsWithIgnoreCase(path, mount))
+            return false;
+
+        // Boundary-aware: mount "/shared" should not match "/shared2".
+        if (mount[mlen - 1] == '/')
+            return true;
+
+        const char next = path[mlen];
+        return next == '\0' || next == '/';
+    }
+
     VFS &VFS::instance()
     {
         static VFS instance;
@@ -37,13 +78,6 @@ namespace QFS
         if (!path || !fs)
             return QC::Status::InvalidParam;
 
-        QC::Status status = fs->mount();
-        if (status != QC::Status::Success)
-        {
-            QC_LOG_ERROR("QFS", "Failed to mount filesystem at %s", path);
-            return status;
-        }
-
         MountPoint mp;
         QC::String::strncpy(mp.path, path, sizeof(mp.path) - 1);
         mp.fs = fs;
@@ -59,7 +93,6 @@ namespace QFS
         {
             if (QC::String::strcmp(m_mounts[i].path, path) == 0)
             {
-                m_mounts[i].fs->unmount();
                 for (QC::usize j = i + 1; j < m_mounts.size(); ++j)
                 {
                     m_mounts[j - 1] = m_mounts[j];
@@ -80,7 +113,7 @@ namespace QFS
         for (QC::usize i = 0; i < m_mounts.size(); ++i)
         {
             QC::usize len = QC::String::strlen(m_mounts[i].path);
-            if (Path::startsWith(path, m_mounts[i].path) && len > bestLen)
+            if (isMountPrefixIgnoreCase(path, m_mounts[i].path) && len > bestLen)
             {
                 bestMatch = m_mounts[i].fs;
                 bestLen = len;

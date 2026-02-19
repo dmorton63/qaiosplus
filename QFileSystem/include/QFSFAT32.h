@@ -137,6 +137,11 @@ namespace QFS
             QC::u32 startCluster;
             QC::u32 currentCluster;
             QC::u32 entryIndex;
+
+            // Pending VFAT long filename entries (0x0F) immediately preceding an SFN entry.
+            char pendingLongName[256];
+            QC::u8 pendingLongNameChecksum;
+            bool pendingLongNameValid;
         };
 
         QC::u32 clusterToSector(QC::u32 cluster);
@@ -154,6 +159,7 @@ namespace QFS
         QC::u32 traverseToCluster(QC::u32 startCluster, QC::u32 index);
         QC::u32 entryCluster(const FAT32DirEntry &entry) const;
         void parseName(const char *fatName, char *outName);
+        void parseName(const FAT32DirEntry &entry, char *outName);
         void formatName(const char *name, char *fatName);
 
         BlockDevice *m_device;

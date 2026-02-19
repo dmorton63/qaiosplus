@@ -62,6 +62,11 @@ namespace QW
             QC::i32 largeStep() const { return m_largeStep; }
             void setLargeStep(QC::i32 step) { m_largeStep = step; }
 
+            /// If enabled, any left-click inside the control toggles value between minimum and maximum.
+            /// Default: false (normal scrollbar behavior).
+            bool clickToMax() const { return m_clickToMax; }
+            void setClickToMax(bool enabled) { m_clickToMax = enabled; }
+
             // ==================== Appearance ====================
 
             Color trackColor() const { return m_trackColor; }
@@ -141,6 +146,8 @@ namespace QW
             bool m_dragging;
             QC::i32 m_dragOffset;
             HitArea m_pressedArea;
+
+            bool m_clickToMax;
         };
 
     } // namespace Controls

@@ -68,6 +68,8 @@ namespace QW
         void *m_backBuffer;
         QC::uptr m_physicalAddress;
 
+        bool m_frontbufferIsMMIO;
+
         QC::u32 m_width;
         QC::u32 m_height;
         QC::u32 m_pitch;

@@ -19,11 +19,13 @@ BUILD_DIR="${PROJECT_DIR}/build"
 ISO_DIR="${PROJECT_DIR}/iso"
 LIMINE_DIR="${PROJECT_DIR}/limine"
 RAMDISK_DIR="${PROJECT_DIR}/ramdisk"
+SHARED_DIR="${PROJECT_DIR}/shared"
 
 # Output files
 KERNEL_ELF="${BUILD_DIR}/kernel/qaios.elf"
 ISO_FILE="${BUILD_DIR}/qaios-limine.iso"
 RAMDISK_OUTPUT="${ISO_DIR}/modules/ramdisk.img"
+SERIAL_LOG="${BUILD_DIR}/serial.log"
 
 echo -e "${CYAN}========================================${NC}"
 echo -e "${CYAN}       QAIOS Build System${NC}"
@@ -33,6 +35,8 @@ echo -e "${CYAN}========================================${NC}"
 CLEAN=false
 VERBOSE=false
 RUN_QEMU=false
+FULLSCREEN=false
+TPM=false
 JOBS=$(nproc 2>/dev/null || echo 4)
 
 while [[ $# -gt 0 ]]; do
@@ -49,6 +53,14 @@ while [[ $# -gt 0 ]]; do
             RUN_QEMU=true
             shift
             ;;
+        -f|--fullscreen)
+            FULLSCREEN=true
+            shift
+            ;;
+        --tpm)
+            TPM=true
+            shift
+            ;;
         -j*)
             JOBS="${1#-j}"
             shift
@@ -60,6 +72,8 @@ while [[ $# -gt 0 ]]; do
             echo "  -c, --clean     Clean build (remove build directory)"
             echo "  -v, --verbose   Verbose build output"
             echo "  -r, --run       Run in QEMU after building"
+            echo "  -f, --fullscreen Start QEMU fullscreen"
+            echo "  --tpm           Enable TPM2 emulation (requires swtpm)"
             echo "  -j<N>           Use N parallel jobs (default: $(nproc))"
             echo "  -h, --help      Show this help"
             exit 0
@@ -124,6 +138,11 @@ if [ -d "${RAMDISK_DIR}" ]; then
         # Keep the source name desktop.json, but store it in the image as DESKTOP.JSN.
         mcopy -i "${RAMDISK_TEMP}" "${PROJECT_DIR}/desktop.json" ::/DESKTOP.JSN >/dev/null 2>&1
     fi
+
+    # Include startup.cfg so kernel startup-mode parsing can work from the ramdisk
+    if [ -f "${PROJECT_DIR}/startup.cfg" ]; then
+        mcopy -i "${RAMDISK_TEMP}" "${PROJECT_DIR}/startup.cfg" ::/STARTUP.CFG >/dev/null 2>&1
+    fi
     cp "${RAMDISK_TEMP}" "${RAMDISK_OUTPUT}"
     echo -e "${GREEN}      Ramdisk written to modules/ramdisk.img${NC}"
 fi
@@ -170,16 +189,76 @@ if [ "$RUN_QEMU" = true ]; then
     echo -e "${YELLOW}Launching QEMU...${NC}"
     echo -e "${CYAN}(Click inside QEMU window for keyboard focus)${NC}"
     echo -e "${CYAN}(Press Ctrl+Q in OS to shutdown)${NC}"
-    echo -e "${CYAN}(Serial log: ${BUILD_DIR}/serial.log)${NC}"
+    echo -e "${CYAN}(Serial log: ${SERIAL_LOG})${NC}"
     echo ""
-    # Use xHCI controller with USB tablet for absolute mouse positioning
-    qemu-system-x86_64 \
-        -cdrom "${ISO_FILE}" \
-        -m 256M \
-        -device qemu-xhci,id=xhci \
-        -device usb-tablet,bus=xhci.0 \
-        -serial file:"${BUILD_DIR}/serial.log"
+
+    # Start each run with a clean serial log.
+    : > "${SERIAL_LOG}"
+
+    # Optional TPM2 emulation via swtpm
+    SWTPM_PID=""
+    TPM_ARGS=()
+    if [ "$TPM" = true ]; then
+        if ! command -v swtpm &> /dev/null; then
+            echo -e "${RED}swtpm not found. Install with: sudo apt install swtpm swtpm-tools${NC}"
+            exit 1
+        fi
+
+        SWTPM_DIR="${BUILD_DIR}/swtpm"
+        SWTPM_SOCK="${SWTPM_DIR}/swtpm-sock"
+        mkdir -p "${SWTPM_DIR}/state"
+        rm -f "${SWTPM_SOCK}"
+
+        echo -e "${GREEN}Starting swtpm (TPM2) at ${SWTPM_SOCK}${NC}"
+        swtpm socket --tpm2 \
+            --tpmstate dir="${SWTPM_DIR}/state" \
+            --ctrl type=unixio,path="${SWTPM_SOCK}" \
+            --log level=20 \
+            >/dev/null 2>&1 &
+        SWTPM_PID=$!
+
+        cleanup_swtpm() {
+            if [ -n "${SWTPM_PID}" ] && kill -0 "${SWTPM_PID}" 2>/dev/null; then
+                kill "${SWTPM_PID}" 2>/dev/null || true
+                wait "${SWTPM_PID}" 2>/dev/null || true
+            fi
+            rm -f "${SWTPM_SOCK}" 2>/dev/null || true
+        }
+        trap cleanup_swtpm EXIT
+
+        TPM_ARGS=(
+            -chardev "socket,id=chrtpm,path=${SWTPM_SOCK}"
+            -tpmdev "emulator,id=tpm0,chardev=chrtpm"
+            -device "tpm-crb,tpmdev=tpm0"
+        )
+    fi
+
+    SHARED_ARGS=()
+    if [ -d "${SHARED_DIR}" ]; then
+        echo -e "${GREEN}Mounting shared folder at ${SHARED_DIR}${NC}"
+        SHARED_ARGS=(-drive "file=fat:rw:${SHARED_DIR},format=raw,if=ide,index=1")
+    else
+        echo -e "${YELLOW}Shared folder not found at ${SHARED_DIR}; skipping host share (mkdir shared to enable).${NC}"
+    fi
+
+    # Use xHCI controller with a USB HID mouse (relative), matching real hardware
+    QEMU_ARGS=(
+        -cdrom "${ISO_FILE}"
+        -boot order=d
+        -m 256M
+        -vga vmware
+        # Allow the guest to terminate QEMU cleanly via I/O port 0xF4.
+        -device isa-debug-exit,iobase=0xf4,iosize=0x04
+        -device qemu-xhci,id=xhci
+        -device usb-mouse,bus=xhci.0
+        -serial file:"${SERIAL_LOG}"
+    )
+    if [ "$FULLSCREEN" = true ]; then
+        QEMU_ARGS+=( -full-screen )
+    fi
+
+    qemu-system-x86_64 "${QEMU_ARGS[@]}" "${TPM_ARGS[@]}" ${SHARED_ARGS[@]}
     echo ""
     echo -e "${CYAN}=== Serial output (last 30 lines) ===${NC}"
-    tail -30 "${BUILD_DIR}/serial.log"
+    tail -30 "${SERIAL_LOG}"
 fi

@@ -91,6 +91,14 @@ namespace QW
         void postWindowEvent(QK::Event::Type type, Window *window);
         void applyStyleToWindow(Window *window, const StyleSnapshot &snapshot);
 
+        struct PendingDestroy
+        {
+            Window *window;
+            Rect bounds;
+        };
+
+        void processPendingDestroy();
+
         QC::u32 m_nextWindowId;
         QC::Vector<Window *> m_windows;
         Window *m_focusedWindow;
@@ -100,6 +108,14 @@ namespace QW
 
         Point m_mousePos;
         QK::Event::ListenerId m_listenerId;
+
+        // Window drag/move state (title bar)
+        Window *m_dragWindow;
+        Point m_dragOffset;
+        Rect m_dragStartBounds;
+
+        QC::u32 m_dispatchDepth = 0;
+        QC::Vector<PendingDestroy> m_pendingDestroy;
     };
 
 } // namespace QW
