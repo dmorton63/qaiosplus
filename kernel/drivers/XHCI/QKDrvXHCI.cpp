@@ -216,8 +216,10 @@ namespace QKDrv
             if (m_callback)
             {
                 MouseReport report;
-                report.x = dx;
-                report.y = dy;
+                report.x = m_x;     // absolute position
+                report.y = m_y;     // absolute position
+                report.deltaX = dx; // relative movement
+                report.deltaY = dy; // relative movement
                 report.wheel = wheel;
                 report.buttons = m_buttons;
                 report.isAbsolute = false;

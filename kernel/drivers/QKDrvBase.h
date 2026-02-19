@@ -35,6 +35,8 @@ namespace QKDrv
     {
         QC::i32 x;       // Position or delta
         QC::i32 y;       // Position or delta
+        QC::i32 deltaX;  // Relative movement X
+        QC::i32 deltaY;  // Relative movement Y
         QC::i32 wheel;   // Scroll wheel delta
         QC::u8 buttons;  // Button state bitmask
         bool isAbsolute; // True for tablet/absolute mode

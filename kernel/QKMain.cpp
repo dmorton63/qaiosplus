@@ -41,6 +41,7 @@
 #include "QKStorageProbe.h"
 #include "QKMemoryBlockDevice.h"
 #include "QKConsole.h"
+#include "QKDrvBase.h"
 
 // Limine requests are defined in QKBoot.asm
 
@@ -2923,10 +2924,12 @@ extern "C" void kernel_main(QC::u32 magic, BootInfo *bootInfo)
                     
                     auto &eventMgr = QK::Event::EventManager::instance();
 
-                    // For absolute devices (USB tablet), report.x/y are screen coordinates.
-                    // For relative devices (PS/2 mouse), report.x/y are deltas and mouse->x/y are absolute.
+                    // For absolute devices, report.x/y are screen coordinates.
+                    // For relative devices, report.x/y are absolute cursor position; deltaX/deltaY are movement.
                     const QC::i32 curX = report.isAbsolute ? report.x : mouse->x();
                     const QC::i32 curY = report.isAbsolute ? report.y : mouse->y();
+                    const QC::i32 deltaX = report.isAbsolute ? (prevPosValid ? (curX - prevX) : 0) : report.deltaX;
+                    const QC::i32 deltaY = report.isAbsolute ? (prevPosValid ? (curY - prevY) : 0) : report.deltaY;
 
                     QC::i32 dx = 0;
                     QC::i32 dy = 0;
@@ -2943,8 +2946,8 @@ extern "C" void kernel_main(QC::u32 magic, BootInfo *bootInfo)
                     }
                     else
                     {
-                        dx = report.x;
-                        dy = report.y;
+                        dx = report.deltaX;
+                        dy = report.deltaY;
                     }
 
                     // Movement telemetry is useful for driver bring-up, but it's very noisy.
@@ -2987,9 +2990,9 @@ extern "C" void kernel_main(QC::u32 magic, BootInfo *bootInfo)
                         serialPrint(",");
                         serialPrintInt(curY);
                         serialPrint(") d(");
-                        serialPrintInt(dx);
+                        serialPrintInt(deltaX);
                         serialPrint(",");
-                        serialPrintInt(dy);
+                        serialPrintInt(deltaY);
                         serialPrint(") buttons=");
                         serialPrintInt(report.buttons);
                         serialPrint("\r\n");
