@@ -652,7 +652,8 @@ namespace QDrv
         ++s_cursorPosWrites;
         if ((s_cursorPosWrites % 240u) == 1u)
         {
-            QC_LOG_INFO("QDrvSVGA", "Cursor pos write: %u,%u (visible=%u)", x, y, m_cursorVisible ? 1u : 0u);
+            QC_LOG_INFO("QDrvSVGA", "Cursor pos write #%u: %u,%u (visible=%u)",
+                        s_cursorPosWrites, x, y, m_cursorVisible ? 1u : 0u);
         }
         writeReg(SVGA_REG_CURSOR_X, x);
         writeReg(SVGA_REG_CURSOR_Y, y);
