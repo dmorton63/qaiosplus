@@ -235,6 +235,15 @@ Currently recognized roles are `sidebar`, `accent`, and `destructive`, which map
 
 Any override flag activates `m_themeOverrides`, so a minimal palette tweak is enough to opt-in. Combine this with the layout controls in [desktop.json](desktop.json) to ship seasonal or branded desktops without rebuilding the kernel.
 
+## Recent Changes (Feb 19, 2026)
+
+See [backups/2026-02-19_backup_summary.md](backups/2026-02-19_backup_summary.md) for the detailed log.
+
+- Restructured QC libraries into `QCCore/`, `QCMath/`, `QCSerialization/`, `QUICommon/`, `QCommand/` with `QCommon` kept as a compatibility umbrella target.
+- Added a permanent `cpu_relax()` (x86 `pause`) routine in NASM and replaced deprecated `volatile` delay loops in UHCI/XHCI.
+- Added `startup.cfg` support (packed into ramdisk) and optional QEMU host share plumbing.
+- Continued desktop/theme work: transparency + font scaling overrides, painter text scaling, and a minimal terminal `ls` command.
+
 ## Recent Changes (Feb 9, 2026)
 
 ### Driver Refactoring
