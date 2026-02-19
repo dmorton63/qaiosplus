@@ -17,6 +17,8 @@ namespace QW
         void present(const QC::Rect *dirtyRects, QC::usize dirtyCount) override;
 
         bool hasHardwareCursor() const override;
+        void setCursorImage(const QC::u32 *pixels, QC::u16 width, QC::u16 height,
+                            QC::u16 hotspotX, QC::u16 hotspotY) override;
         void setCursorVisible(bool visible) override;
         void setCursorPosition(QC::u16 x, QC::u16 y) override;
 

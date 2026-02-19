@@ -601,6 +601,27 @@ namespace QW
                 m_cursorHeight = height;
                 m_cursorHotspotX = hotspotX;
                 m_cursorHotspotY = hotspotY;
+
+                if (m_presentBackend && m_presentBackend->hasHardwareCursor())
+                {
+                    QC::i32 safeHotspotX = hotspotX;
+                    QC::i32 safeHotspotY = hotspotY;
+                    if (safeHotspotX < 0)
+                        safeHotspotX = 0;
+                    if (safeHotspotY < 0)
+                        safeHotspotY = 0;
+                    if (safeHotspotX >= static_cast<QC::i32>(width))
+                        safeHotspotX = static_cast<QC::i32>(width) - 1;
+                    if (safeHotspotY >= static_cast<QC::i32>(height))
+                        safeHotspotY = static_cast<QC::i32>(height) - 1;
+
+                    m_presentBackend->setCursorImage(
+                        m_cursorPixels,
+                        static_cast<QC::u16>(width),
+                        static_cast<QC::u16>(height),
+                        static_cast<QC::u16>(safeHotspotX),
+                        static_cast<QC::u16>(safeHotspotY));
+                }
             }
         }
     }

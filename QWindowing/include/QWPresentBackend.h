@@ -28,6 +28,8 @@ namespace QW
 
         // Optional cursor hooks
         virtual bool hasHardwareCursor() const { return false; }
+        virtual void setCursorImage(const QC::u32 * /*pixels*/, QC::u16 /*width*/, QC::u16 /*height*/,
+                                    QC::u16 /*hotspotX*/, QC::u16 /*hotspotY*/) {}
         virtual void setCursorVisible(bool /*visible*/) {}
         virtual void setCursorPosition(QC::u16 /*x*/, QC::u16 /*y*/) {}
     };

@@ -57,6 +57,9 @@ namespace QDrv
         constexpr QC::u32 SVGA_CMD_UPDATE = 1;
         constexpr QC::u32 SVGA_CMD_RECT_COPY = 3;
 
+        // Cursor FIFO commands
+        constexpr QC::u32 SVGA_CMD_DEFINE_CURSOR = 19;
+
         // Cursor registers (VMware SVGA II)
         constexpr QC::u32 SVGA_REG_CURSOR_ID = 24;
         constexpr QC::u32 SVGA_REG_CURSOR_X = 25;
@@ -501,6 +504,135 @@ namespace QDrv
             if (readReg(SVGA_REG_BUSY) == 0)
                 break;
         }
+    }
+
+    void VmwareSVGA::setCursorImage(const QC::u32 *pixels, QC::u16 width, QC::u16 height,
+                                    QC::u16 hotspotX, QC::u16 hotspotY)
+    {
+        if (!m_hwCursor || !pixels || width == 0 || height == 0)
+            return;
+
+        // Cursor definition is pushed via the same FIFO used for SVGA2D.
+        if (!(m_2dAvailable || initialize2D()) || !m_fifo)
+        {
+            if (!m_cursorDefined)
+            {
+                QC_LOG_WARN("QDrvSVGA", "Cursor define skipped (FIFO unavailable)");
+            }
+            return;
+        }
+
+        if (width > 256 || height > 256)
+        {
+            QC_LOG_WARN("QDrvSVGA", "Cursor define rejected (size=%ux%u)", width, height);
+            return;
+        }
+
+        static QC::u32 s_cursorDefineCount = 0;
+        ++s_cursorDefineCount;
+        if (s_cursorDefineCount <= 4 || (s_cursorDefineCount % 120u) == 1u)
+        {
+            QC_LOG_INFO("QDrvSVGA", "setCursorImage %ux%u hotspot=(%u,%u)", width, height, hotspotX, hotspotY);
+        }
+
+        // SVGA_CMD_DEFINE_CURSOR payload format (QEMU-compatible):
+        // [CMD, id, hot_x, hot_y, w, h, (ignored), bpp, mask..., image...]
+        constexpr QC::u32 cursorId = 0;
+        constexpr QC::u32 bpp = 32;
+
+        const QC::u32 dwordsPerMaskRow = (static_cast<QC::u32>(width) + 31u) >> 5u;
+        const QC::u32 maskDwords = dwordsPerMaskRow * static_cast<QC::u32>(height);
+        const QC::u32 imageDwords = static_cast<QC::u32>(width) * static_cast<QC::u32>(height);
+
+        constexpr QC::u32 headerDwords = 8; // cmd + 7 args
+        const QC::u32 totalDwords = headerDwords + maskDwords + imageDwords;
+        const QC::u32 totalBytes = totalDwords * sizeof(QC::u32);
+
+        const QC::u32 min = m_fifo[SVGA_FIFO_MIN];
+        const QC::u32 max = m_fifo[SVGA_FIFO_MAX];
+        QC::u32 next = m_fifo[SVGA_FIFO_NEXT_CMD];
+        const QC::u32 stop = m_fifo[SVGA_FIFO_STOP];
+
+        if (!fifoHasSpace(min, next, stop, max, totalBytes))
+        {
+            QC_LOG_WARN("QDrvSVGA", "SVGA FIFO full; drop DEFINE_CURSOR (bytes=%u)", totalBytes);
+            return;
+        }
+
+        if (next + totalBytes > max)
+        {
+            if (!fifoHasSpace(min, min, stop, max, totalBytes))
+            {
+                QC_LOG_WARN("QDrvSVGA", "SVGA FIFO wrap blocked; drop DEFINE_CURSOR (bytes=%u)", totalBytes);
+                return;
+            }
+            next = min;
+        }
+
+        volatile QC::u32 *cmd = reinterpret_cast<volatile QC::u32 *>(reinterpret_cast<volatile QC::u8 *>(m_fifo) + next);
+        cmd[0] = SVGA_CMD_DEFINE_CURSOR;
+        cmd[1] = cursorId;
+        cmd[2] = hotspotX;
+        cmd[3] = hotspotY;
+        cmd[4] = width;
+        cmd[5] = height;
+        cmd[6] = 0; // ignored by QEMU
+        cmd[7] = bpp;
+
+        // Build the 1bpp AND mask.
+        // QEMU consumes this mask as a byte stream and interprets bits MSB-first in each byte.
+        for (QC::u32 y = 0; y < height; ++y)
+        {
+            QC::u8 rowMask[32] = {};
+            for (QC::u32 x = 0; x < width; ++x)
+            {
+                const QC::u32 pixel = pixels[y * static_cast<QC::u32>(width) + x];
+                const QC::u32 alpha = (pixel >> 24) & 0xFFu;
+                if (alpha >= 0x80u)
+                {
+                    const QC::u32 byteIndex = x >> 3;
+                    const QC::u8 bit = static_cast<QC::u8>(0x80u >> (x & 7u));
+                    rowMask[byteIndex] = static_cast<QC::u8>(rowMask[byteIndex] | bit);
+                }
+            }
+
+            for (QC::u32 d = 0; d < dwordsPerMaskRow; ++d)
+            {
+                const QC::u32 base = d * 4u;
+                const QC::u32 word = (static_cast<QC::u32>(rowMask[base + 0]) << 0u) |
+                                     (static_cast<QC::u32>(rowMask[base + 1]) << 8u) |
+                                     (static_cast<QC::u32>(rowMask[base + 2]) << 16u) |
+                                     (static_cast<QC::u32>(rowMask[base + 3]) << 24u);
+                cmd[headerDwords + y * dwordsPerMaskRow + d] = word;
+            }
+        }
+
+        // Fill the 32bpp pixmap payload (RGB in low 24 bits; alpha comes from mask).
+        const QC::u32 imageBase = headerDwords + maskDwords;
+        for (QC::u32 i = 0; i < imageDwords; ++i)
+        {
+            cmd[imageBase + i] = pixels[i] & 0x00FFFFFFu;
+        }
+
+        QC::write_barrier();
+
+        next += totalBytes;
+        if (next >= max)
+            next = min;
+        m_fifo[SVGA_FIFO_NEXT_CMD] = next;
+
+        // Ensure the cursor ID is selected and kick FIFO.
+        writeReg(SVGA_REG_CURSOR_ID, cursorId);
+        writeReg(SVGA_REG_SYNC, 1);
+        for (QC::u32 i = 0; i < 10'000; ++i)
+        {
+            if (readReg(SVGA_REG_BUSY) == 0)
+                break;
+        }
+
+        // Keep the cursor visible state latched after a redefine.
+        writeReg(SVGA_REG_CURSOR_ON, m_cursorVisible ? 1u : 0u);
+        m_cursorDefined = true;
     }
 
     void VmwareSVGA::setCursorVisible(bool visible)

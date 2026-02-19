@@ -101,6 +101,12 @@ namespace QW
         return QDrv::VmwareSVGA::instance().hasHardwareCursor();
     }
 
+    void VmwareSVGAPresentBackend::setCursorImage(const QC::u32 *pixels, QC::u16 width, QC::u16 height,
+                                                  QC::u16 hotspotX, QC::u16 hotspotY)
+    {
+        QDrv::VmwareSVGA::instance().setCursorImage(pixels, width, height, hotspotX, hotspotY);
+    }
+
     void VmwareSVGAPresentBackend::setCursorVisible(bool visible)
     {
         QDrv::VmwareSVGA::instance().setCursorVisible(visible);

@@ -25,6 +25,10 @@ namespace QDrv
         QC::u32 height() const;
         QC::u32 bitsPerPixel() const;
 
+        // Defines the hardware cursor image and hotspot (best-effort).
+        // If unsupported/unavailable, this is a no-op.
+        void setCursorImage(const QC::u32 *pixels, QC::u16 width, QC::u16 height,
+                            QC::u16 hotspotX, QC::u16 hotspotY);
         void setCursorVisible(bool visible);
         void setCursorPosition(QC::u16 x, QC::u16 y);
 
@@ -54,5 +58,7 @@ namespace QDrv
         QC::VirtAddr m_fifoVirt;
         volatile QC::u32 *m_fifo;
         QC::u32 m_fifoSizeBytes;
+
+        bool m_cursorDefined = false;
     };
 }
