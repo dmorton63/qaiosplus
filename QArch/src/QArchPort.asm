@@ -81,3 +81,6 @@ asm_hlt:
 cpu_relax:
     pause
     ret
+
+; Mark stack as non-executable (silences ld executable-stack warning)
+section .note.GNU-stack noalloc noexec nowrite
