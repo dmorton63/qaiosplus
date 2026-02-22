@@ -172,7 +172,7 @@ namespace QKDrv
 
         // HIDMouseDriver implementation
         HIDMouseDriver::HIDMouseDriver(XHCIControllerImpl *controller)
-            : m_controller(controller), m_callback(nullptr), m_x(0), m_y(0), m_minX(0), m_minY(0), m_maxX(1023), m_maxY(767), m_buttons(0)
+            : m_controller(controller), m_callback(nullptr), m_x(0), m_y(0), m_fx(0.0f), m_fy(0.0f), m_minX(0), m_minY(0), m_maxX(1023), m_maxY(767), m_buttons(0)
         {
         }
 
@@ -194,32 +194,51 @@ namespace QKDrv
             // Center cursor when bounds are (re)applied.
             m_x = (minX + maxX) / 2;
             m_y = (minY + maxY) / 2;
+            m_fx = static_cast<float>(m_x);
+            m_fy = static_cast<float>(m_y);
         }
 
         void HIDMouseDriver::updateDelta(QC::i32 dx, QC::i32 dy, QC::i32 wheel, QC::u8 buttons)
         {
-            // Keep behavior consistent with PS/2 driver.
-            m_x += dx;
-            m_y += dy;
+            // Relative mice in QEMU can be very fast/jittery. Apply a modest sensitivity
+            // factor so UI hit-testing feels controllable.
+            // (Historically this scaling lived in WindowManager; keeping it here ensures
+            // cursor rendering and event routing remain 1:1 in absolute coordinates.)
+            static constexpr float kSensitivity = 0.12f;
 
-            if (m_x < m_minX)
-                m_x = m_minX;
-            if (m_x > m_maxX)
-                m_x = m_maxX;
-            if (m_y < m_minY)
-                m_y = m_minY;
-            if (m_y > m_maxY)
-                m_y = m_maxY;
+            const QC::i32 oldX = m_x;
+            const QC::i32 oldY = m_y;
+
+            // Accumulate with fractional precision; do not snap the accumulator to integer
+            // each packet or small motions become hard to land (quantization).
+            m_fx += static_cast<float>(dx) * kSensitivity;
+            m_fy += static_cast<float>(dy) * kSensitivity;
+
+            // Clamp the accumulator (not just the integer) so fractions are preserved.
+            if (m_fx < static_cast<float>(m_minX))
+                m_fx = static_cast<float>(m_minX);
+            if (m_fx > static_cast<float>(m_maxX))
+                m_fx = static_cast<float>(m_maxX);
+            if (m_fy < static_cast<float>(m_minY))
+                m_fy = static_cast<float>(m_minY);
+            if (m_fy > static_cast<float>(m_maxY))
+                m_fy = static_cast<float>(m_maxY);
+
+            // Derive the integer cursor position from the accumulator.
+            // (Accumulator is already clamped to bounds above.)
+            // Use rounding (not truncation) so subpixel motion feels less "sticky".
+            m_x = static_cast<QC::i32>(m_fx + 0.5f);
+            m_y = static_cast<QC::i32>(m_fy + 0.5f);
 
             m_buttons = buttons;
 
             if (m_callback)
             {
                 MouseReport report;
-                report.x = m_x;     // absolute position
-                report.y = m_y;     // absolute position
-                report.deltaX = dx; // relative movement
-                report.deltaY = dy; // relative movement
+                report.x = m_x;               // absolute position
+                report.y = m_y;               // absolute position
+                report.deltaX = (m_x - oldX); // scaled movement
+                report.deltaY = (m_y - oldY); // scaled movement
                 report.wheel = wheel;
                 report.buttons = m_buttons;
                 report.isAbsolute = false;

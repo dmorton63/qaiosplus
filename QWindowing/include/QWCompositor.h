@@ -65,6 +65,7 @@ namespace QW
         // Cursor
         void setCursor(const QC::u32 *pixels, QC::u32 width, QC::u32 height,
                        QC::i32 hotspotX, QC::i32 hotspotY);
+        void syncHardwareCursorPosition();
         void drawCursor(QC::i32 x, QC::i32 y);
         void saveCursorBackground(QC::i32 x, QC::i32 y);
         void restoreCursorBackground();

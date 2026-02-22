@@ -196,6 +196,8 @@ namespace QKDrv
             MouseCallback m_callback;
             QC::i32 m_x;
             QC::i32 m_y;
+            float m_fx;
+            float m_fy;
             QC::i32 m_minX;
             QC::i32 m_minY;
             QC::i32 m_maxX;

@@ -142,14 +142,41 @@ namespace QW
             switch (event.type())
             {
             case QK::Event::Type::MouseMove:
-                return onMouseMove(event.asMouse().x, event.asMouse().y,
-                                   event.asMouse().deltaX, event.asMouse().deltaY);
+            {
+                int mx = event.asMouse().x;
+                int my = event.asMouse().y;
 
+                bool inside = hitTest(mx, my);
+
+                // Hover state transitions
+                if (inside && m_state == ControlState::Normal)
+                {
+                    setState(ControlState::Hovered);
+                    invalidate();
+                }
+                else if (!inside && m_state == ControlState::Hovered)
+                {
+                    setState(ControlState::Normal);
+                    invalidate();
+                }
+
+                // If the mouse isn't inside, don't consume the event
+                if (!inside)
+                    return false;
+
+                return onMouseMove(mx, my,
+                                   event.asMouse().deltaX,
+                                   event.asMouse().deltaY);
+            }
             case QK::Event::Type::MouseButtonDown:
+                setState(ControlState::Pressed);
+                invalidate();
                 return onMouseDown(event.asMouse().x, event.asMouse().y,
                                    event.asMouse().button);
 
             case QK::Event::Type::MouseButtonUp:
+                setState(ControlState::Hovered);
+                invalidate();
                 return onMouseUp(event.asMouse().x, event.asMouse().y,
                                  event.asMouse().button);
 
@@ -165,6 +192,7 @@ namespace QW
                                event.asKey().modifiers);
 
             case QK::Event::Type::WindowFocus:
+                setFocused(true);
                 onFocus();
                 return true;
 

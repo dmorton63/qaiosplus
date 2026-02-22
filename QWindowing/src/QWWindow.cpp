@@ -181,6 +181,12 @@ namespace QW
             return;
 
         WindowPaintArgs chromeArgs{};
+        // Treat borderless/titleless windows as a desktop surface so the style system
+        // can render the correct background without window chrome.
+        if ((m_flags & WindowFlags::HasBorder) == 0 && (m_flags & WindowFlags::HasTitle) == 0)
+        {
+            chromeArgs.surface = WindowPaintArgs::Surface::Desktop;
+        }
         chromeArgs.bounds = frameCtx.surfaceBounds;
         chromeArgs.title = m_title;
         chromeArgs.active = true; // TODO: hook into WindowManager focus state

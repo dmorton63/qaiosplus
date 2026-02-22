@@ -34,15 +34,23 @@ namespace QNet
         return htonl(val);
     }
 
-    // TCP pseudo-header for checksum calculation
-    struct TCPPseudoHeader
+    static inline void checksumAddBytes(QC::u32 &sum, const void *data, QC::usize length)
     {
-        QC::u32 sourceIP;
-        QC::u32 destIP;
-        QC::u8 zero;
-        QC::u8 protocol;
-        QC::u16 tcpLength;
-    } __attribute__((packed));
+        const auto *bytes = static_cast<const QC::u8 *>(data);
+        while (length >= 2)
+        {
+            const QC::u16 word = static_cast<QC::u16>((static_cast<QC::u16>(bytes[0]) << 8) | bytes[1]);
+            sum += word;
+            bytes += 2;
+            length -= 2;
+        }
+
+        if (length == 1)
+        {
+            const QC::u16 word = static_cast<QC::u16>(static_cast<QC::u16>(bytes[0]) << 8);
+            sum += word;
+        }
+    }
 
     // Buffer sizes
     static constexpr QC::usize DEFAULT_SEND_BUFFER = 8192;
@@ -480,32 +488,24 @@ namespace QNet
     {
         QC::u32 sum = 0;
 
-        // Pseudo-header
-        TCPPseudoHeader pseudo;
-        pseudo.sourceIP = srcAddr.value;
-        pseudo.destIP = destAddr.value;
-        pseudo.zero = 0;
-        pseudo.protocol = static_cast<QC::u8>(Protocol::TCP);
-        pseudo.tcpLength = htons(static_cast<QC::u16>(length));
+        // Pseudo-header (RFC 793): src IP, dst IP, zero, protocol, TCP length.
+        QC::u8 pseudo[12];
+        pseudo[0] = srcAddr.octets[0];
+        pseudo[1] = srcAddr.octets[1];
+        pseudo[2] = srcAddr.octets[2];
+        pseudo[3] = srcAddr.octets[3];
+        pseudo[4] = destAddr.octets[0];
+        pseudo[5] = destAddr.octets[1];
+        pseudo[6] = destAddr.octets[2];
+        pseudo[7] = destAddr.octets[3];
+        pseudo[8] = 0;
+        pseudo[9] = static_cast<QC::u8>(Protocol::TCP);
+        const QC::u16 tcpLen = htons(static_cast<QC::u16>(length));
+        pseudo[10] = static_cast<QC::u8>(tcpLen >> 8);
+        pseudo[11] = static_cast<QC::u8>(tcpLen & 0xFF);
 
-        const QC::u16 *words = reinterpret_cast<const QC::u16 *>(&pseudo);
-        for (QC::usize i = 0; i < sizeof(pseudo) / 2; i++)
-        {
-            sum += words[i];
-        }
-
-        // TCP segment
-        words = static_cast<const QC::u16 *>(segment);
-        QC::usize len = length;
-        while (len > 1)
-        {
-            sum += *words++;
-            len -= 2;
-        }
-        if (len == 1)
-        {
-            sum += *reinterpret_cast<const QC::u8 *>(words);
-        }
+        checksumAddBytes(sum, pseudo, sizeof(pseudo));
+        checksumAddBytes(sum, segment, length);
 
         // Fold
         while (sum >> 16)
@@ -513,7 +513,8 @@ namespace QNet
             sum = (sum & 0xFFFF) + (sum >> 16);
         }
 
-        return static_cast<QC::u16>(~sum);
+        const QC::u16 result = static_cast<QC::u16>(~sum);
+        return htons(result);
     }
 
 } // namespace QNet

@@ -345,7 +345,10 @@ namespace QW
     {
         const StyleSnapshot &styleData = style();
         drawWindowBackground(args, styleData);
-        drawWindowBorder(args, styleData);
+        if (args.surface != WindowPaintArgs::Surface::Desktop)
+        {
+            drawWindowBorder(args, styleData);
+        }
     }
 
     void StyleRenderer::drawPanel(const PanelPaintArgs &args)

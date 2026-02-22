@@ -21,15 +21,23 @@ namespace QNet
         return htons(val);
     }
 
-    // UDP pseudo-header for checksum
-    struct UDPPseudoHeader
+    static inline void checksumAddBytes(QC::u32 &sum, const void *data, QC::usize length)
     {
-        QC::u32 sourceIP;
-        QC::u32 destIP;
-        QC::u8 zero;
-        QC::u8 protocol;
-        QC::u16 udpLength;
-    } __attribute__((packed));
+        const auto *bytes = static_cast<const QC::u8 *>(data);
+        while (length >= 2)
+        {
+            const QC::u16 word = static_cast<QC::u16>((static_cast<QC::u16>(bytes[0]) << 8) | bytes[1]);
+            sum += word;
+            bytes += 2;
+            length -= 2;
+        }
+
+        if (length == 1)
+        {
+            const QC::u16 word = static_cast<QC::u16>(static_cast<QC::u16>(bytes[0]) << 8);
+            sum += word;
+        }
+    }
 
     UDP::UDP()
         : m_nextPort(49152)
@@ -275,32 +283,27 @@ namespace QNet
     {
         QC::u32 sum = 0;
 
-        // Pseudo-header
-        UDPPseudoHeader pseudo;
-        pseudo.sourceIP = srcAddr.value;
-        pseudo.destIP = destAddr.value;
-        pseudo.zero = 0;
-        pseudo.protocol = static_cast<QC::u8>(Protocol::UDP);
-        pseudo.udpLength = htons(static_cast<QC::u16>(length));
+        // Pseudo-header (RFC 768): src IP, dst IP, zero, protocol, UDP length.
+        // We build bytes explicitly to avoid relying on packed struct alignment.
+        QC::u8 pseudo[12];
+        pseudo[0] = srcAddr.octets[0];
+        pseudo[1] = srcAddr.octets[1];
+        pseudo[2] = srcAddr.octets[2];
+        pseudo[3] = srcAddr.octets[3];
+        pseudo[4] = destAddr.octets[0];
+        pseudo[5] = destAddr.octets[1];
+        pseudo[6] = destAddr.octets[2];
+        pseudo[7] = destAddr.octets[3];
+        pseudo[8] = 0;
+        pseudo[9] = static_cast<QC::u8>(Protocol::UDP);
+        const QC::u16 udpLen = htons(static_cast<QC::u16>(length));
+        pseudo[10] = static_cast<QC::u8>(udpLen >> 8);
+        pseudo[11] = static_cast<QC::u8>(udpLen & 0xFF);
 
-        const QC::u16 *words = reinterpret_cast<const QC::u16 *>(&pseudo);
-        for (QC::usize i = 0; i < sizeof(pseudo) / 2; i++)
-        {
-            sum += words[i];
-        }
+        checksumAddBytes(sum, pseudo, sizeof(pseudo));
 
-        // UDP packet
-        words = static_cast<const QC::u16 *>(packet);
-        QC::usize len = length;
-        while (len > 1)
-        {
-            sum += *words++;
-            len -= 2;
-        }
-        if (len == 1)
-        {
-            sum += *reinterpret_cast<const QC::u8 *>(words);
-        }
+        // UDP packet (header + payload)
+        checksumAddBytes(sum, packet, length);
 
         // Fold
         while (sum >> 16)
@@ -310,8 +313,12 @@ namespace QNet
 
         QC::u16 result = static_cast<QC::u16>(~sum);
 
-        // UDP checksum of 0 means no checksum, use 0xFFFF instead
-        return result == 0 ? 0xFFFF : result;
+        // UDP checksum of 0 means no checksum, use 0xFFFF instead.
+        if (result == 0)
+            result = 0xFFFF;
+
+        // Return in network byte order to match other UDP header fields.
+        return htons(result);
     }
 
 } // namespace QNet
