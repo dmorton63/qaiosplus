@@ -535,9 +535,13 @@ namespace QDrv
             QC_LOG_INFO("QDrvSVGA", "setCursorImage %ux%u hotspot=(%u,%u)", width, height, hotspotX, hotspotY);
         }
 
-        // SVGA_CMD_DEFINE_CURSOR payload format (QEMU-compatible):
+        // SVGA_CMD_DEFINE_CURSOR payload format (legacy SVGA FIFO, as implemented by QEMU):
         // [CMD, id, hot_x, hot_y, w, h, (ignored), bpp, mask..., image...]
+        // Mask is a 1bpp bitmap sized in dwords as SVGA_BITMAP_SIZE(w,h) (rows padded to 32 bits).
+        // QEMU later interprets it as a tightly-packed mono bitmap (bpl = ceil(w/8)), so we pack
+        // the first (bpl * h) bytes tightly and leave any remaining per-row padding bytes as 0.
         constexpr QC::u32 cursorId = 0;
+        constexpr QC::u32 ignored = 0;
         constexpr QC::u32 bpp = 32;
 
         const QC::u32 dwordsPerMaskRow = (static_cast<QC::u32>(width) + 31u) >> 5u;
@@ -576,11 +580,23 @@ namespace QDrv
         cmd[3] = hotspotY;
         cmd[4] = width;
         cmd[5] = height;
-        cmd[6] = 0; // ignored by QEMU
+        cmd[6] = ignored;
         cmd[7] = bpp;
 
         // Build the 1bpp AND mask.
-        // QEMU consumes this mask as a byte stream and interprets bits MSB-first in each byte.
+        // QEMU treats mask-bit=1 as transparent when bpp=32 (see cursor_set_mono with transparent=1).
+        // Therefore: set bit=1 for transparent pixels, bit=0 for opaque pixels.
+        // Bits are MSB-first in each byte.
+
+        // Zero-fill full FIFO mask area (includes any per-row padding).
+        volatile QC::u8 *maskBytes = reinterpret_cast<volatile QC::u8 *>(&cmd[headerDwords]);
+        const QC::u32 maskBytesTotal = maskDwords * sizeof(QC::u32);
+        for (QC::u32 i = 0; i < maskBytesTotal; ++i)
+        {
+            maskBytes[i] = 0;
+        }
+
+        const QC::u32 maskBpl = (static_cast<QC::u32>(width) + 7u) >> 3u;
         for (QC::u32 y = 0; y < height; ++y)
         {
             QC::u8 rowMask[32] = {};
@@ -588,7 +604,7 @@ namespace QDrv
             {
                 const QC::u32 pixel = pixels[y * static_cast<QC::u32>(width) + x];
                 const QC::u32 alpha = (pixel >> 24) & 0xFFu;
-                if (alpha >= 0x80u)
+                if (alpha < 0x80u)
                 {
                     const QC::u32 byteIndex = x >> 3;
                     const QC::u8 bit = static_cast<QC::u8>(0x80u >> (x & 7u));
@@ -596,14 +612,11 @@ namespace QDrv
                 }
             }
 
-            for (QC::u32 d = 0; d < dwordsPerMaskRow; ++d)
+            // Tightly pack scanlines at the start of the mask payload.
+            const QC::u32 dst = y * maskBpl;
+            for (QC::u32 b = 0; b < maskBpl; ++b)
             {
-                const QC::u32 base = d * 4u;
-                const QC::u32 word = (static_cast<QC::u32>(rowMask[base + 0]) << 0u) |
-                                     (static_cast<QC::u32>(rowMask[base + 1]) << 8u) |
-                                     (static_cast<QC::u32>(rowMask[base + 2]) << 16u) |
-                                     (static_cast<QC::u32>(rowMask[base + 3]) << 24u);
-                cmd[headerDwords + y * dwordsPerMaskRow + d] = word;
+                maskBytes[dst + b] = rowMask[b];
             }
         }
 
@@ -657,9 +670,5 @@ namespace QDrv
         }
         writeReg(SVGA_REG_CURSOR_X, x);
         writeReg(SVGA_REG_CURSOR_Y, y);
-
-        // QEMU's vmware-svga device updates the host cursor position on CURSOR_ON writes,
-        // not on X/Y writes. Re-latching CURSOR_ON here ensures the cursor moves.
-        writeReg(SVGA_REG_CURSOR_ON, m_cursorVisible ? 1u : 0u);
     }
 }

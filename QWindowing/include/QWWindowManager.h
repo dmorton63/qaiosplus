@@ -63,6 +63,7 @@ namespace QW
         // Rendering
         void invalidate(const Rect &rect);
         void render();
+        bool needsRender() const { return m_needsRender; }
 
         // Screen properties
         Size screenSize() const;
@@ -116,6 +117,8 @@ namespace QW
 
         QC::u32 m_dispatchDepth = 0;
         QC::Vector<PendingDestroy> m_pendingDestroy;
+
+        bool m_needsRender = true;
     };
 
 } // namespace QW

@@ -322,12 +322,7 @@ namespace QW
         // Cursor movement is handled via cursor registers, so we don't need framebuffer updates.
         if (hasHwCursor && m_dirtyRegions.empty())
         {
-            auto &wm = WindowManager::instance();
-            const Point mousePos = wm.mousePosition();
-            m_presentBackend->setCursorVisible(true);
-            m_presentBackend->setCursorPosition(
-                static_cast<QC::u16>(mousePos.x),
-                static_cast<QC::u16>(mousePos.y));
+            syncHardwareCursorPosition();
             return;
         }
 
@@ -377,10 +372,7 @@ namespace QW
         Point mousePos = wm.mousePosition();
         if (hasHwCursor)
         {
-            m_presentBackend->setCursorVisible(true);
-            m_presentBackend->setCursorPosition(
-                static_cast<QC::u16>(mousePos.x),
-                static_cast<QC::u16>(mousePos.y));
+            syncHardwareCursorPosition();
         }
         else
         {
@@ -423,6 +415,34 @@ namespace QW
 
         m_frameCount++;
         clearDirtyRegions();
+    }
+
+    void Compositor::syncHardwareCursorPosition()
+    {
+        if (!m_presentBackend || !m_presentBackend->hasHardwareCursor() || !m_framebuffer)
+            return;
+
+        auto &wm = WindowManager::instance();
+        const Point mousePos = wm.mousePosition();
+
+        m_presentBackend->setCursorVisible(true);
+
+        QC::i32 cx = mousePos.x - m_cursorHotspotX;
+        QC::i32 cy = mousePos.y - m_cursorHotspotY;
+        if (cx < 0)
+            cx = 0;
+        if (cy < 0)
+            cy = 0;
+        const QC::i32 maxX = static_cast<QC::i32>(m_framebuffer->width() > 0 ? (m_framebuffer->width() - 1) : 0);
+        const QC::i32 maxY = static_cast<QC::i32>(m_framebuffer->height() > 0 ? (m_framebuffer->height() - 1) : 0);
+        if (cx > maxX)
+            cx = maxX;
+        if (cy > maxY)
+            cy = maxY;
+
+        m_presentBackend->setCursorPosition(
+            static_cast<QC::u16>(cx),
+            static_cast<QC::u16>(cy));
     }
 
     void Compositor::composeWindow(Window *window)

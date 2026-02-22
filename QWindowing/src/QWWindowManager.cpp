@@ -10,6 +10,7 @@
 #include "QKEventManager.h"
 #include "QKMemHeap.h"
 #include "QCMemUtil.h"
+#include "QCLinearAlgebra.h"
 
 namespace QW
 {
@@ -327,6 +328,7 @@ namespace QW
         if (m_compositor)
         {
             m_compositor->invalidate(rect);
+            m_needsRender = true;
         }
     }
 
@@ -335,6 +337,7 @@ namespace QW
         if (m_compositor)
         {
             m_compositor->compose();
+            m_needsRender = false;
         }
     }
 
@@ -365,15 +368,33 @@ namespace QW
     {
         using namespace QK::Event;
 
-        m_mousePos = Point{mouse.x, mouse.y};
+        // The kernel input layer posts mouse events with a meaningful absolute cursor position
+        // (clamped to screen bounds by the active mouse driver). Always trust x/y here to keep
+        // cursor rendering and control hit-testing perfectly aligned.
+        const Size scr = screenSize();
+        const QC::i32 maxX = (scr.width > 0) ? (static_cast<QC::i32>(scr.width) - 1) : 0;
+        const QC::i32 maxY = (scr.height > 0) ? (static_cast<QC::i32>(scr.height) - 1) : 0;
 
+        QC::i32 x = mouse.x;
+        QC::i32 y = mouse.y;
+        if (x < 0)
+            x = 0;
+        if (y < 0)
+            y = 0;
+        if (x > maxX)
+            x = maxX;
+        if (y > maxY)
+            y = maxY;
+
+        m_mousePos = Point{x, y};
         // Keep hardware cursor position tightly synced to input events.
-        // With a hardware cursor enabled, the compositor can update cursor registers
-        // without needing to recomposite/present the whole frame.
+        // Do this without forcing a full compose/present.
         auto syncCursorNow = [&]()
         {
-            // render() is safe here; compositor has an early-out for hw cursor + no dirty.
-            render();
+            if (m_compositor)
+            {
+                m_compositor->syncHardwareCursorPosition();
+            }
         };
 
         // If a title-bar drag is active, keep moving the captured window even if
@@ -411,6 +432,7 @@ namespace QW
                     postWindowEvent(QK::Event::Type::WindowMove, m_dragWindow);
                 }
 
+                // UI movement invalidates; main loop will render. Sync cursor now.
                 syncCursorNow();
                 return;
             }
@@ -454,6 +476,8 @@ namespace QW
                     // Give controls in the title area (e.g. terminal close button)
                     // first chance to handle the click.
                     QK::Event::MouseEventData localMouse = mouse;
+                    localMouse.x = m_mousePos.x;
+                    localMouse.y = m_mousePos.y;
                     localMouse.x -= windowBounds.x;
                     localMouse.y -= windowBounds.y;
 
@@ -479,6 +503,8 @@ namespace QW
             // can rely on window-relative positions for hit testing.
             QK::Event::MouseEventData localMouse = mouse;
             const Rect windowBounds = targetWindow->bounds();
+            localMouse.x = m_mousePos.x;
+            localMouse.y = m_mousePos.y;
             localMouse.x -= windowBounds.x;
             localMouse.y -= windowBounds.y;
 
@@ -491,6 +517,7 @@ namespace QW
             processPendingDestroy();
         }
 
+        // Ensure cursor position updates even if no repaint is needed.
         syncCursorNow();
     }
 

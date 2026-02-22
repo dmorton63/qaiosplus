@@ -37,6 +37,7 @@ VERBOSE=false
 RUN_QEMU=false
 FULLSCREEN=false
 TPM=false
+USE_TABLET=true
 JOBS=$(nproc 2>/dev/null || echo 4)
 
 while [[ $# -gt 0 ]]; do
@@ -61,6 +62,15 @@ while [[ $# -gt 0 ]]; do
             TPM=true
             shift
             ;;
+        --tablet)
+            USE_TABLET=true
+            shift
+            ;;
+        --relmouse)
+            # Force relative USB mouse (can cause grab/misalignment in some QEMU setups).
+            USE_TABLET=false
+            shift
+            ;;
         -j*)
             JOBS="${1#-j}"
             shift
@@ -74,6 +84,8 @@ while [[ $# -gt 0 ]]; do
             echo "  -r, --run       Run in QEMU after building"
             echo "  -f, --fullscreen Start QEMU fullscreen"
             echo "  --tpm           Enable TPM2 emulation (requires swtpm)"
+            echo "  --tablet        Use absolute USB tablet in QEMU (default)"
+            echo "  --relmouse      Use relative USB mouse in QEMU"
             echo "  -j<N>           Use N parallel jobs (default: $(nproc))"
             echo "  -h, --help      Show this help"
             exit 0
@@ -241,7 +253,13 @@ if [ "$RUN_QEMU" = true ]; then
         echo -e "${YELLOW}Shared folder not found at ${SHARED_DIR}; skipping host share (mkdir shared to enable).${NC}"
     fi
 
-    # Use xHCI controller with a USB HID mouse (relative), matching real hardware
+    # Use xHCI controller with a USB tablet (absolute) by default.
+    # This avoids QEMU relative-mouse grab artifacts and improves 1:1 UI hit-testing.
+    INPUT_DEVICE=( -device usb-tablet,bus=xhci.0 )
+    if [ "$USE_TABLET" = false ]; then
+        INPUT_DEVICE=( -device usb-mouse,bus=xhci.0 )
+    fi
+
     QEMU_ARGS=(
         -cdrom "${ISO_FILE}"
         -boot order=d
@@ -250,13 +268,15 @@ if [ "$RUN_QEMU" = true ]; then
         # Allow the guest to terminate QEMU cleanly via I/O port 0xF4.
         -device isa-debug-exit,iobase=0xf4,iosize=0x04
         -device qemu-xhci,id=xhci
-        -device usb-mouse,bus=xhci.0
+        "${INPUT_DEVICE[@]}"
         -serial file:"${SERIAL_LOG}"
     )
     if [ "$FULLSCREEN" = true ]; then
         QEMU_ARGS+=( -full-screen )
     fi
 
+    #QEMU_CMD = "qemu-system-x86_64 "${QEMU_ARGS[@]}" "${TPM_ARGS[@]}" ${SHARED_ARGS[@]}  
+    echo "qemu-system-x86_64 ${QEMU_ARGS[@]} ${TPM_ARGS[@]} ${SHARED_ARGS[@]}"
     qemu-system-x86_64 "${QEMU_ARGS[@]}" "${TPM_ARGS[@]}" ${SHARED_ARGS[@]}
     echo ""
     echo -e "${CYAN}=== Serial output (last 30 lines) ===${NC}"
