@@ -5,6 +5,8 @@
 #include "QCCommandRegistry.h"
 #include "QCString.h"
 
+#include "QKCommandCenter.h"
+
 #include "QKServiceRegistry.h"
 #include "QKMsgBus.h"
 
@@ -16,13 +18,6 @@
 
 namespace
 {
-    static const char *skipSpaces(const char *p)
-    {
-        while (p && (*p == ' ' || *p == '\t'))
-            ++p;
-        return p;
-    }
-
     static void destroyOwnedString(void *p)
     {
         char *s = static_cast<char *>(p);
@@ -60,97 +55,6 @@ namespace
         return ok;
     }
 
-    // ---------------- Commands (shared registry handlers) ----------------
-
-    static bool cmdEcho(const char *args, const QC::Cmd::Context &ctx, void *)
-    {
-        ctx.writeLine(args && *args ? args : "");
-        return true;
-    }
-
-    static bool cmdLs(const char *args, const QC::Cmd::Context &ctx, void *)
-    {
-        const char *path = (args && *args) ? skipSpaces(args) : "/";
-
-        QFS::Directory *dir = QFS::VFS::instance().openDir(path);
-        if (!dir)
-        {
-            ctx.writeLine("ls: cannot open path");
-            return true;
-        }
-
-        // Heading
-        char heading[320];
-        QC::String::memset(heading, 0, sizeof(heading));
-        const char prefix[] = "Listing ";
-        QC::usize idx = 0;
-        for (QC::usize i = 0; prefix[i] && idx + 1 < sizeof(heading); ++i)
-            heading[idx++] = prefix[i];
-        for (QC::usize i = 0; path[i] && idx + 1 < sizeof(heading); ++i)
-            heading[idx++] = path[i];
-        heading[idx] = '\0';
-        ctx.writeLine(heading);
-
-        QFS::DirEntry entry;
-        while (dir->read(&entry))
-        {
-            char line[320];
-            QC::String::memset(line, 0, sizeof(line));
-            QC::usize pos = 0;
-
-            char typeChar = '-';
-            if (entry.type == QFS::FileType::Directory)
-                typeChar = 'd';
-            else if (entry.type == QFS::FileType::SymLink)
-                typeChar = 'l';
-            line[pos++] = typeChar;
-            line[pos++] = ' ';
-
-            // Size (decimal)
-            char sizeBuf[32];
-            QC::String::memset(sizeBuf, 0, sizeof(sizeBuf));
-            QC::u64 value = entry.size;
-            int sizeIdx = 0;
-            if (value == 0)
-            {
-                sizeBuf[sizeIdx++] = '0';
-            }
-            else
-            {
-                char temp[32];
-                int tempIdx = 0;
-                while (value > 0 && tempIdx < 31)
-                {
-                    temp[tempIdx++] = static_cast<char>('0' + (value % 10));
-                    value /= 10;
-                }
-                for (int i = tempIdx - 1; i >= 0; --i)
-                    sizeBuf[sizeIdx++] = temp[i];
-            }
-            for (int i = 0; i < sizeIdx && pos + 1 < sizeof(line); ++i)
-                line[pos++] = sizeBuf[i];
-            line[pos++] = ' ';
-
-            for (int i = 0; entry.name[i] && pos + 1 < sizeof(line); ++i)
-                line[pos++] = entry.name[i];
-
-            line[pos] = '\0';
-            ctx.writeLine(line);
-        }
-
-        QFS::VFS::instance().closeDir(dir);
-        return true;
-    }
-
-    static bool cmdShutdown(const char *, const QC::Cmd::Context &ctx, void *)
-    {
-        ctx.writeLine("Shutdown requested. Awaiting confirmation...");
-        QK::Event::EventManager::instance().postShutdownEvent(
-            QK::Event::Type::ShutdownRequest,
-            static_cast<QC::u32>(QK::Shutdown::Reason::ShellCommand));
-        return true;
-    }
-
 }
 
 namespace QD
@@ -166,10 +70,8 @@ namespace QD
         if (m_commandsRegistered)
             return;
 
-        auto &reg = QC::Cmd::Registry::instance();
-        (void)reg.registerCommand("echo", &cmdEcho, nullptr);
-        (void)reg.registerCommand("ls", &cmdLs, nullptr);
-        (void)reg.registerCommand("shutdown", &cmdShutdown, nullptr);
+        // Shared Command Center MVP (single registry for all front-ends).
+        QK::CmdCenter::registerMvpCommands();
 
         m_commandsRegistered = true;
     }

@@ -9,6 +9,7 @@
 #include "QCString.h"
 #include "QCBuiltins.h"
 #include "QKEventManager.h"
+#include "QKEventTypes.h"
 #include "QKShutdownController.h"
 #include "QFSVFS.h"
 #include "QFSFile.h"
@@ -148,22 +149,95 @@ namespace QD
     }
 
     Terminal::Terminal(Desktop *desktop)
-        : m_desktop(desktop), m_window(nullptr), m_root(nullptr), m_output(nullptr), m_input(nullptr), m_outputLen(0)
+        : m_desktop(desktop), m_window(nullptr), m_windowId(0), m_root(nullptr), m_output(nullptr), m_input(nullptr), m_windowListenerId(QK::Event::InvalidListenerId), m_outputLen(0)
     {
         m_outputBuf[0] = '\0';
+
+        auto &eventMgr = QK::Event::EventManager::instance();
+        if (eventMgr.isInitialized())
+        {
+            m_windowListenerId = eventMgr.addListener(QK::Event::Category::Window, &Terminal::onEvent, this);
+        }
     }
 
     Terminal::~Terminal()
     {
+        if (m_windowListenerId != QK::Event::InvalidListenerId)
+        {
+            QK::Event::EventManager::instance().removeListener(m_windowListenerId);
+            m_windowListenerId = QK::Event::InvalidListenerId;
+        }
         close();
+    }
+
+    bool Terminal::isOpen() const
+    {
+        return m_window != nullptr && windowStillAlive();
+    }
+
+    bool Terminal::windowStillAlive() const
+    {
+        if (!m_window || m_windowId == 0)
+            return false;
+
+        // Compare pointer identity against the WindowManager's registry.
+        // If the window was destroyed elsewhere, this will return nullptr.
+        auto *alive = QW::WindowManager::instance().windowById(m_windowId);
+        return alive == m_window;
+    }
+
+    bool Terminal::onEvent(const QK::Event::Event &event, void *userData)
+    {
+        auto *self = static_cast<Terminal *>(userData);
+        if (!self)
+            return false;
+
+        if (event.type() == QK::Event::Type::WindowDestroy)
+        {
+            const auto &we = event.asWindow();
+            if (self->m_windowId != 0 && we.windowId == self->m_windowId)
+            {
+                self->onWindowDestroyed(we.windowId);
+            }
+        }
+
+        return false;
+    }
+
+    void Terminal::onWindowDestroyed(QC::u32 windowId)
+    {
+        // Do not dereference m_window here; the window may already be deleted.
+        if (m_windowId == 0 || windowId == 0 || windowId != m_windowId)
+            return;
+
+        QC_LOG_WARN("QDTerminal", "Terminal window destroyed externally (id=%u)", windowId);
+
+        if (m_desktop)
+        {
+            m_desktop->removeTaskbarWindow(windowId);
+        }
+
+        m_window = nullptr;
+        m_root = nullptr;
+        m_output = nullptr;
+        m_input = nullptr;
+        m_windowId = 0;
     }
 
     void Terminal::open()
     {
         if (m_window)
         {
-            focus();
-            return;
+            // If the window was destroyed outside Terminal::close(), clear stale pointers.
+            if (!windowStillAlive())
+            {
+                onWindowDestroyed(m_windowId);
+            }
+            else
+            {
+                focus();
+                return;
+            }
         }
 
         if (!m_desktop)
@@ -179,6 +253,20 @@ namespace QD
         m_window = QW::WindowManager::instance().createWindow("Terminal", {x, y, w, h});
         if (!m_window)
             return;
+
+        m_windowId = m_window->windowId();
+        QC_LOG_INFO("QDTerminal", "Terminal window created (id=%u)", m_windowId);
+
+        // Ensure we have a window-destroy listener even if the Terminal was created
+        // before the event system was initialized.
+        if (m_windowListenerId == QK::Event::InvalidListenerId)
+        {
+            auto &eventMgr = QK::Event::EventManager::instance();
+            if (eventMgr.isInitialized())
+            {
+                m_windowListenerId = eventMgr.addListener(QK::Event::Category::Window, &Terminal::onEvent, this);
+            }
+        }
 
         // Receive streaming output from CommandProcessor.
         m_window->setMessageHandler(&Terminal::onWindowMessage, this);
@@ -235,8 +323,8 @@ namespace QD
         QW::WindowManager::instance().render();
 
         // Optional taskbar entry
-        m_desktop->addTaskbarWindow(m_window->windowId(), "Terminal");
-        m_desktop->setActiveTaskbarWindow(m_window->windowId());
+        m_desktop->addTaskbarWindow(m_windowId, "Terminal");
+        m_desktop->setActiveTaskbarWindow(m_windowId);
     }
 
     void Terminal::close()
@@ -244,11 +332,15 @@ namespace QD
         if (!m_window)
             return;
 
+        const QC::u32 closingId = m_windowId ? m_windowId : m_window->windowId();
+
         if (m_desktop)
         {
-            m_desktop->removeTaskbarWindow(m_window->windowId());
+            m_desktop->removeTaskbarWindow(closingId);
         }
 
+        // Prevent WindowDestroy event handler from doing any work for this window.
+        m_windowId = 0;
         QW::WindowManager::instance().destroyWindow(m_window);
         m_window = nullptr;
         m_root = nullptr;
@@ -260,6 +352,11 @@ namespace QD
     {
         if (!m_window)
             return;
+        if (!windowStillAlive())
+        {
+            onWindowDestroyed(m_windowId);
+            return;
+        }
         QW::WindowManager::instance().bringToFront(m_window);
         QW::WindowManager::instance().setFocus(m_window);
     }
@@ -329,18 +426,7 @@ namespace QD
 
         p = skipSpaces(p);
 
-        // Local-only commands (UI state): help/clear/saveterm.
-        if (streqIgnoreCase(cmd, "help"))
-        {
-            appendLine("Commands:");
-            appendLine("  help");
-            appendLine("  ls [path]");
-            appendLine("  echo <text>");
-            appendLine("  clear");
-            appendLine("  saveterm [name|/shared/path]");
-            appendLine("  shutdown");
-            return;
-        }
+        // Local-only commands (UI state): clear/saveterm.
 
         if (streqIgnoreCase(cmd, "clear"))
         {

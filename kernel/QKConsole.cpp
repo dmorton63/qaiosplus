@@ -7,6 +7,9 @@
 #include "QFSVFS.h"
 #include "QCString.h"
 
+#include "QCCommandRegistry.h"
+#include "QKCommandCenter.h"
+
 namespace QK
 {
     namespace Console
@@ -444,7 +447,22 @@ namespace QK
                     const Command *cmd = findCommand(query);
                     if (!cmd)
                     {
-                        print("\r\nCommand not found\r\n");
+                        QK::CmdCenter::registerMvpCommands();
+                        const char *desc = QC::Cmd::Registry::instance().findDescription(query);
+                        if (!desc)
+                        {
+                            print("\r\nCommand not found\r\n");
+                            return;
+                        }
+
+                        print("\r\n");
+                        print(query);
+                        if (desc && *desc)
+                        {
+                            print(" - ");
+                            print(desc);
+                        }
+                        print("\r\n");
                         return;
                     }
                     print("\r\n");
@@ -467,6 +485,29 @@ namespace QK
                     {
                         print(" - ");
                         print(g_commandTable[i].description);
+                    }
+                    print("\r\n");
+                }
+
+                // Add shared registry commands (if any) that aren't built-ins.
+                QK::CmdCenter::registerMvpCommands();
+                auto &reg = QC::Cmd::Registry::instance();
+                for (QC::usize i = 0; i < reg.commandCount(); ++i)
+                {
+                    const char *name = reg.commandNameAt(i);
+                    if (!name)
+                        continue;
+                    if (findCommand(name))
+                        continue;
+
+                    print("  ");
+                    print(name);
+
+                    const char *desc = reg.commandDescriptionAt(i);
+                    if (desc && *desc)
+                    {
+                        print(" - ");
+                        print(desc);
                     }
                     print("\r\n");
                 }
@@ -686,6 +727,12 @@ namespace QK
 
             void executeCommand()
             {
+                // Keep an intact copy for registry execution; tokenizeInPlace mutates the buffer.
+                char original[kBufferSize];
+                QC::String::memset(original, 0, sizeof(original));
+                QC::String::strncpy(original, g_buffer, sizeof(original) - 1);
+                original[sizeof(original) - 1] = '\0';
+
                 char *line = g_buffer;
                 const char *argv[kMaxArgs];
                 int argc = 0;
@@ -702,7 +749,17 @@ namespace QK
                 }
                 else
                 {
-                    print("\r\nUnknown command\r\n");
+                    QK::CmdCenter::registerMvpCommands();
+                    QC::Cmd::Context ctx;
+                    ctx.out = [](const char *text, void *)
+                    {
+                        if (text && *text)
+                            print(text);
+                        print("\r\n");
+                    };
+                    const bool handled = QC::Cmd::Registry::instance().execute(original, ctx);
+                    if (!handled)
+                        print("\r\nUnknown command\r\n");
                 }
 
                 printPrompt();
@@ -716,6 +773,7 @@ namespace QK
             clearBuffer();
             resetCommandTable();
             registerBuiltIns();
+            QK::CmdCenter::registerMvpCommands();
             QC::String::strncpy(g_cwd, "/", sizeof(g_cwd) - 1);
             g_cwd[sizeof(g_cwd) - 1] = '\0';
             QC::String::memset(g_transcript, 0, sizeof(g_transcript));

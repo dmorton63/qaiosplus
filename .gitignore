@@ -43,3 +43,4 @@ Shared/citadel.txt
 # Local backup archives
 backups/*.tgz
 backups/*.tar.gz
+backups/*.sha256

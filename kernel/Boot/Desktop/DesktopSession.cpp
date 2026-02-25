@@ -241,9 +241,13 @@ namespace QK::Boot::Desktop
         g_Log("Initializing QWindowing...\r\n");
 
         // Initialize heap first - required for memory allocations.
-        g_Log("Initializing heap...\r\n");
-        QK::Memory::Heap::instance().initialize(g_State.Heap.Buffer, g_State.Heap.Size);
-        g_Log("Heap initialized\r\n");
+        // Heap is normally initialized during early boot; this call is a safe fallback.
+        if (!QK::Memory::Heap::instance().isInitialized())
+        {
+            g_Log("Initializing heap...\r\n");
+            QK::Memory::Heap::instance().initialize(g_State.Heap.Buffer, g_State.Heap.Size);
+            g_Log("Heap initialized\r\n");
+        }
 
         g_Log("Bringing up filesystem...\r\n");
         if (QK::Boot::Ramdisk::InitializeFromLimineModules(g_State.ModuleRequest, g_Log))

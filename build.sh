@@ -265,6 +265,8 @@ if [ "$RUN_QEMU" = true ]; then
         -boot order=d
         -m 256M
         -vga vmware
+        -netdev user,id=net0
+        -device e1000,netdev=net0
         # Allow the guest to terminate QEMU cleanly via I/O port 0xF4.
         -device isa-debug-exit,iobase=0xf4,iosize=0x04
         -device qemu-xhci,id=xhci
@@ -275,9 +277,19 @@ if [ "$RUN_QEMU" = true ]; then
         QEMU_ARGS+=( -full-screen )
     fi
 
+    # Prefer distro QEMU on Ubuntu/WSL. Some custom /usr/local builds omit
+    # user-mode networking (slirp), which breaks `-netdev user`.
+    QEMU_BIN="qemu-system-x86_64"
+    if [ -x "/usr/bin/qemu-system-x86_64" ]; then
+        QEMU_BIN="/usr/bin/qemu-system-x86_64"
+    elif [ -x "/usr/local/bin/qemu-system-x86_64" ]; then
+        QEMU_BIN="/usr/local/bin/qemu-system-x86_64"
+    fi
+    echo -e "${CYAN}Using QEMU: ${QEMU_BIN}${NC}"
+
     #QEMU_CMD = "qemu-system-x86_64 "${QEMU_ARGS[@]}" "${TPM_ARGS[@]}" ${SHARED_ARGS[@]}  
-    echo "qemu-system-x86_64 ${QEMU_ARGS[@]} ${TPM_ARGS[@]} ${SHARED_ARGS[@]}"
-    qemu-system-x86_64 "${QEMU_ARGS[@]}" "${TPM_ARGS[@]}" ${SHARED_ARGS[@]}
+    echo "${QEMU_BIN} ${QEMU_ARGS[@]} ${TPM_ARGS[@]} ${SHARED_ARGS[@]}"
+    "${QEMU_BIN}" "${QEMU_ARGS[@]}" "${TPM_ARGS[@]}" ${SHARED_ARGS[@]}
     echo ""
     echo -e "${CYAN}=== Serial output (last 30 lines) ===${NC}"
     tail -30 "${SERIAL_LOG}"

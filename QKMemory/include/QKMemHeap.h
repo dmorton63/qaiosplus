@@ -15,6 +15,8 @@ namespace QK::Memory
 
         void initialize(QC::VirtAddr base, QC::usize size);
 
+        bool isInitialized() const { return m_totalSize != 0 && m_firstBlock != nullptr; }
+
         // Allocation
         void *allocate(QC::usize size);
         void *allocateAligned(QC::usize size, QC::usize alignment);

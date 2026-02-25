@@ -16,6 +16,8 @@
 #include "Boot/Memory/EarlyMemory.h"
 #include "Boot/QKBoot.h"
 
+#include "QKMemHeap.h"
+
 // Limine requests are defined in QKBoot.asm
 
 // External symbols from linker
@@ -44,16 +46,6 @@ extern "C" void kernel_main()
     QK::Debug::Serial::Write("\r\n=== QAIOS Kernel ===\r\n");
     QK::Debug::Serial::Write("Serial initialized, kernel starting...\r\n");
 
-    QK::Console::initialize(QK::Debug::Serial::Write);
-    // Limine already clears BSS for us.
-    QK::Debug::Serial::Write("BSS (skipped - Limine does it)\r\n");
-
-    if (QK::Debug::Terminal::InitFromLimineRequest(limine_terminal_request))
-    {
-        QK::Debug::Serial::SetMirror(QK::Debug::Terminal::Write);
-        QK::Debug::Terminal::Write("Boot terminal initialized\r\n");
-    }
-
     // --- Early Boot ---
     QKBoot::setLogFn(QK::Debug::Serial::Write);
     {
@@ -67,6 +59,22 @@ extern "C" void kernel_main()
         QKBoot::setLimineRequests(req);
     }
     QKBoot::initializeMemory();
+
+    // Bring up the heap as early as possible so any subsystem that uses `new`
+    // (command registry, network stack, UI, etc.) doesn't reboot-loop.
+    const auto earlyHeap = QK::Boot::Memory::GetEarlyHeap();
+    QK::Memory::Heap::instance().initialize(earlyHeap.Buffer, earlyHeap.Size);
+
+    QK::Console::initialize(QK::Debug::Serial::Write);
+    // Limine already clears BSS for us.
+    QK::Debug::Serial::Write("BSS (skipped - Limine does it)\r\n");
+
+    if (QK::Debug::Terminal::InitFromLimineRequest(limine_terminal_request))
+    {
+        QK::Debug::Serial::SetMirror(QK::Debug::Terminal::Write);
+        QK::Debug::Terminal::Write("Boot terminal initialized\r\n");
+    }
+
     QKBoot::initializeDrivers();
 
     // Desktop/driver bring-up expects interrupts to be enabled (as before, when

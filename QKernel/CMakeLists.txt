@@ -3,6 +3,7 @@ add_library(QKernel STATIC
     src/QKTaskManager.cpp
     src/QKScheduler.cpp
     src/QKInterrupts.cpp
+    src/QKCommandCenter.cpp
     src/QKShutdownController.cpp
     src/QKSecureStore.cpp
     src/QKSecurityCenter.cpp
@@ -10,5 +11,5 @@ add_library(QKernel STATIC
 )
 
 target_include_directories(QKernel PUBLIC include)
-target_link_libraries(QKernel PUBLIC QCommon QEvent QFileSystem)
+target_link_libraries(QKernel PUBLIC QCommon QEvent QFileSystem QNetwork)
 target_compile_options(QKernel PRIVATE ${KERNEL_COMPILE_FLAGS})

@@ -4,6 +4,7 @@
 // Namespace: QD
 
 #include "QCTypes.h"
+#include "QKEventListener.h"
 
 namespace QW
 {
@@ -31,7 +32,7 @@ namespace QD
         ~Terminal();
 
         void open();
-        bool isOpen() const { return m_window != nullptr; }
+        bool isOpen() const;
         void close();
 
         void focus();
@@ -40,6 +41,10 @@ namespace QD
         static void onSubmit(QW::Controls::TextBox *textBox, void *userData);
         static void onCloseClick(QW::Controls::Button *button, void *userData);
         static bool onWindowMessage(QW::Window *window, const QW::Message &msg, void *userData);
+        static bool onEvent(const QK::Event::Event &event, void *userData);
+
+        void onWindowDestroyed(QC::u32 windowId);
+        bool windowStillAlive() const;
 
         void appendLine(const char *line);
         void executeLine(const char *line);
@@ -48,9 +53,12 @@ namespace QD
         Desktop *m_desktop;
 
         QW::Window *m_window;
+        QC::u32 m_windowId;
         QW::Controls::Panel *m_root;
         QW::Controls::Label *m_output;
         QW::Controls::TextBox *m_input;
+
+        QK::Event::ListenerId m_windowListenerId;
 
         static constexpr QC::usize OUTPUT_CAP = 4096;
         char m_outputBuf[OUTPUT_CAP];

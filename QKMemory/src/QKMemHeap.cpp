@@ -26,7 +26,25 @@ namespace QK::Memory
 
     void Heap::initialize(QC::VirtAddr base, QC::usize size)
     {
+        if (isInitialized())
+        {
+            if (m_base == base && m_totalSize == size)
+            {
+                // Already initialized with the same arena.
+                return;
+            }
+            QC_LOG_WARN("QKMemHeap", "Heap already initialized (base=0x%lx size=%lu KB); ignoring reinit to base=0x%lx size=%lu KB",
+                        m_base, m_totalSize / 1024, base, size / 1024);
+            return;
+        }
+
         QC_LOG_INFO("QKMemHeap", "Initializing heap at 0x%lx, size %lu KB", base, size / 1024);
+
+        if (base == 0 || size <= sizeof(BlockHeader))
+        {
+            QC_LOG_ERROR("QKMemHeap", "Invalid heap arena base=0x%lx size=%lu", base, size);
+            return;
+        }
 
         m_base = base;
         m_totalSize = size;

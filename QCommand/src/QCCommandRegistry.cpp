@@ -42,6 +42,11 @@ namespace QC
 
         bool Registry::registerCommand(const char *name, Handler handler, void *userData)
         {
+            return registerCommandEx(name, handler, userData, nullptr);
+        }
+
+        bool Registry::registerCommandEx(const char *name, Handler handler, void *userData, const char *description)
+        {
             if (!name || !handler)
                 return false;
 
@@ -56,6 +61,7 @@ namespace QC
             e.name = name;
             e.handler = handler;
             e.userData = userData;
+            e.description = description;
             m_entries.push_back(e);
             return true;
         }
@@ -65,6 +71,30 @@ namespace QC
             if (index >= m_entries.size())
                 return nullptr;
             return m_entries[index].name;
+        }
+
+        const char *Registry::commandDescriptionAt(QC::usize index) const
+        {
+            if (index >= m_entries.size())
+                return nullptr;
+            return m_entries[index].description;
+        }
+
+        const char *Registry::findDescription(const char *name) const
+        {
+            if (!name)
+                return nullptr;
+
+            for (QC::usize i = 0; i < m_entries.size(); ++i)
+            {
+                const Entry &e = m_entries[i];
+                if (!e.name)
+                    continue;
+                if (equalsIgnoreCase(e.name, name))
+                    return e.description;
+            }
+
+            return nullptr;
         }
 
         bool Registry::execute(const char *line, const Context &ctx)

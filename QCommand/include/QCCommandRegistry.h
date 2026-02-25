@@ -38,12 +38,19 @@ namespace QC
 
             bool registerCommand(const char *name, Handler handler, void *userData = nullptr);
 
+            // Extended registration with an optional description (used by help output).
+            bool registerCommandEx(const char *name, Handler handler, void *userData, const char *description);
+
             // Execute a command line. Returns true if a command was found and invoked.
             bool execute(const char *line, const Context &ctx);
 
             // Best-effort enumeration for help output.
             QC::usize commandCount() const { return m_entries.size(); }
             const char *commandNameAt(QC::usize index) const;
+            const char *commandDescriptionAt(QC::usize index) const;
+
+            // Best-effort lookup for help output.
+            const char *findDescription(const char *name) const;
 
         private:
             Registry() = default;
@@ -53,6 +60,7 @@ namespace QC
                 const char *name = nullptr;
                 Handler handler = nullptr;
                 void *userData = nullptr;
+                const char *description = nullptr;
             };
 
             QC::Vector<Entry> m_entries;

@@ -6,6 +6,7 @@
 #include "QCLogger.h"
 #include "QKMemTranslator.h"
 #include "QNetStack.h"
+#include "QNetEthernet.h"
 
 // DMA helpers (defined in QKMain.cpp)
 extern "C" QC::PhysAddr earlyAllocatePage();
@@ -163,6 +164,16 @@ namespace QKDrv::E1000
 
         QC_LOG_INFO("e1000", "MAC %02x:%02x:%02x:%02x:%02x:%02x",
                     m_mac[0], m_mac[1], m_mac[2], m_mac[3], m_mac[4], m_mac[5]);
+
+        // Export MAC to the software network stack.
+        QNet::Stack::instance().initialize();
+        if (auto *eth = QNet::Stack::instance().ethernet())
+        {
+            QNet::MACAddress mac{};
+            for (int i = 0; i < 6; ++i)
+                mac.bytes[i] = m_mac[i];
+            eth->setMACAddress(mac);
+        }
     }
 
     void Controller::setupReceiveAddress()
